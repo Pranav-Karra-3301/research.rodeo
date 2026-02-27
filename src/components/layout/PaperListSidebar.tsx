@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useCallback } from "react";
-import { Search, ArrowUpDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { Search, ArrowUpDown } from "lucide-react";
 import { motion } from "framer-motion";
 import { Input } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
@@ -15,11 +15,9 @@ import { layout, animation, CLUSTER_COLORS } from "@/lib/design-tokens";
 import type { PaperNode } from "@/types";
 
 type SortKey = "relevance" | "citations" | "year";
-type Direction = "prior" | "derivative";
 
 export function PaperListSidebar() {
   const nodes = useGraphStore((s) => s.nodes);
-  const edges = useGraphStore((s) => s.edges);
   const clusters = useGraphStore((s) => s.clusters);
   const selectedNodeId = useGraphStore((s) => s.selectedNodeId);
   const selectNode = useGraphStore((s) => s.selectNode);
@@ -27,7 +25,6 @@ export function PaperListSidebar() {
 
   const [searchFilter, setSearchFilter] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("relevance");
-  const [direction, setDirection] = useState<Direction>("prior");
   const [activeClusterId, setActiveClusterId] = useState<string | null>(null);
 
   // Get all materialized/enriched papers
@@ -37,37 +34,9 @@ export function PaperListSidebar() {
     );
   }, [nodes]);
 
-  // Filter by direction (prior/derivative) relative to selected node
-  const directionFiltered = useMemo(() => {
-    if (!selectedNodeId) return allPapers;
-
-    const citesEdges = edges.filter((e) => e.type === "cites" || e.type === "cited-by");
-    if (citesEdges.length === 0) return allPapers;
-
-    const priorIds = new Set<string>();
-    const derivativeIds = new Set<string>();
-
-    for (const edge of citesEdges) {
-      if (edge.type === "cites") {
-        // A cites B
-        if (edge.source === selectedNodeId) priorIds.add(edge.target);
-        if (edge.target === selectedNodeId) derivativeIds.add(edge.source);
-        continue;
-      }
-
-      // A cited-by B  (i.e. B cites A)
-      if (edge.source === selectedNodeId) derivativeIds.add(edge.target);
-      if (edge.target === selectedNodeId) priorIds.add(edge.source);
-    }
-
-    const ids = direction === "prior" ? priorIds : derivativeIds;
-    if (ids.size === 0) return allPapers;
-    return allPapers.filter((p) => ids.has(p.id) || p.id === selectedNodeId);
-  }, [allPapers, edges, selectedNodeId, direction]);
-
   // Filter by search text and cluster
   const filteredPapers = useMemo(() => {
-    let papers = directionFiltered;
+    let papers = allPapers;
 
     if (activeClusterId) {
       papers = papers.filter((p) => p.clusterId === activeClusterId);
@@ -83,7 +52,7 @@ export function PaperListSidebar() {
     }
 
     return papers;
-  }, [directionFiltered, searchFilter, activeClusterId]);
+  }, [allPapers, searchFilter, activeClusterId]);
 
   // Sort
   const sortedPapers = useMemo(() => {
@@ -137,35 +106,8 @@ export function PaperListSidebar() {
         </div>
       </div>
 
-      {/* Direction tabs + sort */}
-      <div className="flex items-center justify-between px-2 py-1.5 border-b border-[#e8e7e2]">
-        <div className="flex items-center rounded-md bg-[#f3f2ee] p-0.5">
-          <button
-            onClick={() => setDirection("prior")}
-            className={cn(
-              "flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors",
-              direction === "prior"
-                ? "bg-white text-[#1c1917]"
-                : "text-[#78716c] hover:text-[#44403c]"
-            )}
-          >
-            <ChevronLeft className="w-3 h-3" />
-            Prior
-          </button>
-          <button
-            onClick={() => setDirection("derivative")}
-            className={cn(
-              "flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors",
-              direction === "derivative"
-                ? "bg-white text-[#1c1917]"
-                : "text-[#78716c] hover:text-[#44403c]"
-            )}
-          >
-            Derivative
-            <ChevronRight className="w-3 h-3" />
-          </button>
-        </div>
-
+      {/* Sort */}
+      <div className="flex items-center justify-end px-2 py-1.5 border-b border-[#e8e7e2]">
         <Button
           variant="ghost"
           size="icon"
