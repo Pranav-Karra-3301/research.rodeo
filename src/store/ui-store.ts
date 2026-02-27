@@ -1,8 +1,8 @@
 import { create } from "zustand";
-import type { ZoomLevel } from "@/lib/visual/zoom-levels";
 
 type RightPanel = "reader" | "export" | "frontier" | "timeline" | null;
-type CurrentView = "graph" | "list" | "timeline";
+type CurrentView = "graph" | "list" | "chat";
+type ChatInputMode = "chat" | "search";
 
 interface UIState {
   rightPanel: RightPanel;
@@ -14,8 +14,8 @@ interface UIState {
   addSourceOpen: boolean;
   addSourceInitialUrl: string | null;
   currentView: CurrentView;
+  chatInputMode: ChatInputMode;
   contextMenuPosition: { x: number; y: number } | null;
-  currentZoomLevel: ZoomLevel;
 
   // Actions
   setRightPanel: (panel: RightPanel) => void;
@@ -29,13 +29,13 @@ interface UIState {
   openAddSource: (initialUrl?: string) => void;
   closeAddSource: () => void;
   setCurrentView: (view: CurrentView) => void;
+  setChatInputMode: (mode: ChatInputMode) => void;
   setContextMenuPosition: (pos: { x: number; y: number } | null) => void;
-  setCurrentZoomLevel: (level: ZoomLevel) => void;
 }
 
 export const useUIStore = create<UIState>()((set) => ({
   rightPanel: null,
-  chatDockOpen: true,
+  chatDockOpen: false,
   leftSidebarOpen: true,
   paperListOpen: true,
   searchOpen: false,
@@ -43,8 +43,8 @@ export const useUIStore = create<UIState>()((set) => ({
   addSourceOpen: false,
   addSourceInitialUrl: null,
   currentView: "graph",
+  chatInputMode: "chat",
   contextMenuPosition: null,
-  currentZoomLevel: "medium" as ZoomLevel,
 
   setRightPanel: (panel) => set({ rightPanel: panel }),
   toggleRightPanel: (panel) =>
@@ -76,7 +76,9 @@ export const useUIStore = create<UIState>()((set) => ({
     set({ addSourceOpen: false, addSourceInitialUrl: null }),
 
   setCurrentView: (view) => set({ currentView: view }),
+  setChatInputMode: (mode) => set({ chatInputMode: mode }),
 
   setContextMenuPosition: (pos) => set({ contextMenuPosition: pos }),
-  setCurrentZoomLevel: (level) => set({ currentZoomLevel: level }),
 }));
+
+export type { CurrentView, ChatInputMode };
