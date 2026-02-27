@@ -16,7 +16,7 @@ import {
 import { canonicalIdToS2Query } from "@/lib/api/paper-resolver";
 
 const APP_BASE_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
-const CHAT_MODEL_ID = process.env.CHAT_MODEL ?? "claude-sonnet-4-5";
+const CHAT_MODEL_ID = process.env.CHAT_MODEL ?? "claude-sonnet-4-6";
 const CHAT_REASONING_MODE =
   process.env.CHAT_REASONING_MODE === "full" ||
   process.env.CHAT_REASONING_MODE === "off"
@@ -58,6 +58,9 @@ export async function POST(req: Request) {
   });
   const systemPrompt = buildSystemPrompt(projectContext);
 
+  // compact_20260112 is only supported on Sonnet 4.6+ and Opus 4.6+
+  const supportsCompaction = /4[-.]6/.test(CHAT_MODEL_ID);
+
   const anthropicProviderOptions: AnthropicProviderOptions = {
     sendReasoning: CHAT_REASONING_MODE === "full",
     thinking:
@@ -69,24 +72,25 @@ export async function POST(req: Request) {
           },
   };
   if (CHAT_REASONING_MODE !== "off") {
-    anthropicProviderOptions.contextManagement = {
-      edits: [
-        {
-          type: "clear_thinking_20251015",
-          keep: {
-            type: "thinking_turns",
-            value: 1,
-          },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const edits: any[] = [
+      {
+        type: "clear_thinking_20251015",
+        keep: { type: "thinking_turns", value: 1 },
+      },
+    ];
+
+    if (supportsCompaction) {
+      edits.push({
+        type: "compact_20260112",
+        trigger: {
+          type: "input_tokens",
+          value: CHAT_COMPACTION_TRIGGER_TOKENS,
         },
-        {
-          type: "compact_20260112",
-          trigger: {
-            type: "input_tokens",
-            value: CHAT_COMPACTION_TRIGGER_TOKENS,
-          },
-        },
-      ],
-    };
+      });
+    }
+
+    anthropicProviderOptions.contextManagement = { edits };
   }
 
   const result = streamText({
