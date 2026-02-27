@@ -72,6 +72,11 @@ export function useGraph() {
         ? getNodeOpacity(hopDistances.get(node.id), maxVisibleHops)
         : 1;
 
+      // Frontier nodes get a higher minimum opacity so they're readable
+      const nodeOpacity = isFrontier
+        ? Math.max(fadeOpacity, 0.5)
+        : fadeOpacity;
+
       contentNodes.push({
         id: node.id,
         type: isFrontier ? "frontier" : "content",
@@ -88,7 +93,7 @@ export function useGraph() {
           isFrontier,
           recencyColor,
           dimensions,
-          fadeOpacity,
+          fadeOpacity: nodeOpacity,
           onSelect: () => useGraphStore.getState().selectNode(node.id),
           onExpand: (mode: ExpansionMode) => expandNode(node.id, mode),
           onMaterialize: isFrontier
@@ -97,7 +102,7 @@ export function useGraph() {
         } satisfies GraphNodeData,
         style: {
           borderColor: clusterColor,
-          opacity: fadeOpacity,
+          opacity: nodeOpacity,
           transition: "opacity 0.3s ease",
         },
       });

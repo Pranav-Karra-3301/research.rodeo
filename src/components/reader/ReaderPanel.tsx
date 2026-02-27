@@ -1,6 +1,6 @@
 "use client";
 
-import { X, Star, XCircle, Lightbulb, Link2 } from "lucide-react";
+import { X, Star, XCircle, Lightbulb, Link2, Plus } from "lucide-react";
 import { useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/Tabs";
@@ -22,6 +22,7 @@ import { ReaderViewTab } from "./ReaderViewTab";
 export function ReaderPanel() {
   const selectedNodeId = useGraphStore((s) => s.selectedNodeId);
   const nodes = useGraphStore((s) => s.nodes);
+  const materializeNode = useGraphStore((s) => s.materializeNode);
   const setRightPanel = useUIStore((s) => s.setRightPanel);
   const node = selectedNodeId ? nodes.get(selectedNodeId) : undefined;
   const { addKeyFind, addDeadEnd, addInsight } = useAnnotations();
@@ -29,6 +30,7 @@ export function ReaderPanel() {
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
 
+  const isFrontier = node?.state === "discovered";
   const hasViewUrl = !!(node?.data.url || node?.data.openAccessPdf);
 
   const handleAddLink = useCallback(async () => {
@@ -79,6 +81,26 @@ export function ReaderPanel() {
           <X className="w-4 h-4" />
         </button>
       </div>
+
+      {/* Frontier banner with materialize button */}
+      {isFrontier && (
+        <div className="flex items-center gap-2 px-4 py-2.5 bg-[#7c3aed]/5 border-b border-[#7c3aed]/15">
+          <span className="text-[10px] uppercase tracking-wider font-medium text-[#7c3aed]/70 bg-[#7c3aed]/10 rounded px-1.5 py-0.5">
+            Frontier
+          </span>
+          <span className="text-xs text-[#78716c] flex-1">
+            Preview — not yet in your graph
+          </span>
+          <Button
+            size="sm"
+            className="gap-1.5 bg-[#7c3aed] hover:bg-[#6d28d9] text-white h-7 text-xs"
+            onClick={() => materializeNode(node.id)}
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Materialize
+          </Button>
+        </div>
+      )}
 
       {/* Action toolbar */}
       <div className="flex items-center gap-1 px-4 py-2 border-b border-[#e8e7e2]">
