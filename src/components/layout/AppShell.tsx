@@ -68,13 +68,6 @@ export function AppShell() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [openAddSource]);
 
-  // Stub handler for UnifiedChatInput message sends
-  const handleChatSend = (_text: string) => {
-    // In graph view, chat messages go through the ChatView's useChat.
-    // Switch to chat view so the user sees the response.
-    useUIStore.getState().setCurrentView("chat");
-  };
-
   return (
     <TooltipProvider delayDuration={300}>
       <div className="flex flex-col h-screen w-screen bg-[#f8f7f4] text-[#1c1917] overflow-hidden">
@@ -106,10 +99,7 @@ export function AppShell() {
             {currentView === "graph" && (
               <>
                 <GraphCanvas />
-                <UnifiedChatInput
-                  onSendMessage={handleChatSend}
-                  isLoading={false}
-                />
+                <UnifiedChatInput />
               </>
             )}
             {currentView === "list" && <ListView />}
