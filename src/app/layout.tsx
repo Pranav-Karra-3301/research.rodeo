@@ -28,7 +28,8 @@ export const metadata: Metadata = {
     "AI-powered literature research workspace. Discover, explore, and synthesize academic papers.",
   metadataBase: new URL("https://research.rodeo"),
   icons: {
-    icon: "/rodeo.png",
+    icon: "/favicon.ico",
+    shortcut: "/favicon.ico",
     apple: "/rodeo.png",
   },
   openGraph: {
