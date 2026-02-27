@@ -1,20 +1,55 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter, JetBrains_Mono, Source_Serif_4 } from "next/font/google";
+import "@xyflow/react/dist/style.css";
 import "./globals.css";
+import { SpacetimeDBProvider } from "@/components/providers/SpacetimeDBProvider";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
+  display: "swap",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const jetbrains = JetBrains_Mono({
+  variable: "--font-jetbrains",
   subsets: ["latin"],
+  display: "swap",
+});
+
+const sourceSerif = Source_Serif_4({
+  variable: "--font-source-serif",
+  subsets: ["latin"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "Rabbit Hole",
-  description: "Graph-based research explorer",
+  title: "Research Rodeo",
+  description:
+    "AI-powered literature research workspace. Discover, explore, and synthesize academic papers.",
+  metadataBase: new URL("https://research.rodeo"),
+  icons: {
+    icon: "/rodeo.png",
+    apple: "/rodeo.png",
+  },
+  openGraph: {
+    title: "Research Rodeo",
+    description:
+      "AI-powered literature research workspace. Discover, explore, and synthesize academic papers.",
+    images: [
+      {
+        url: "/og-preview.jpg",
+        width: 1200,
+        height: 630,
+        alt: "Research Rodeo",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Research Rodeo",
+    description:
+      "AI-powered literature research workspace. Discover, explore, and synthesize academic papers.",
+  },
 };
 
 export default function RootLayout({
@@ -23,11 +58,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${inter.variable} ${jetbrains.variable} ${sourceSerif.variable} font-sans antialiased`}
       >
-        {children}
+        <SpacetimeDBProvider>{children}</SpacetimeDBProvider>
       </body>
     </html>
   );

@@ -1,4 +1,7 @@
 import type { PaperMetadata, Author, ExternalIds } from "@/types";
+import { extractArxivId } from "@/lib/utils/arxiv-urls";
+import { isAcademicUrl } from "@/lib/utils/arxiv-urls";
+import { sanitizeAbstractText } from "@/lib/utils";
 
 const EXA_BASE_URL = "https://api.exa.ai";
 
@@ -35,48 +38,48 @@ interface ExaSearchResponse {
   autopromptString?: string;
 }
 
-// Inline simplified helpers
+type ExaVerbosity = "compact" | "standard" | "full";
+type ExaSection =
+  | "header"
+  | "navigation"
+  | "banner"
+  | "body"
+  | "sidebar"
+  | "footer"
+  | "metadata";
 
-function sanitizeAbstractText(text: string): string {
-  return text.trim().slice(0, 1000);
+export interface ExaContentsOptions {
+  maxCharacters?: number;
+  includeHtmlTags?: boolean;
+  verbosity?: ExaVerbosity;
+  includeSections?: ExaSection[];
+  excludeSections?: ExaSection[];
+  maxAgeHours?: number;
 }
 
-function extractArxivId(url: string): string | undefined {
-  const match = url.match(/arxiv\.org\/abs\/(\d+\.\d+)/);
-  return match ? match[1] : undefined;
+interface ExaContentsTextResult {
+  id?: string;
+  url?: string;
+  text?: string;
 }
 
-const ACADEMIC_DOMAINS_CHECK = [
-  "arxiv.org",
-  "semanticscholar.org",
-  "scholar.google.com",
-  "openreview.net",
-  "proceedings.mlr.press",
-  "aclweb.org",
-  "nature.com",
-  "science.org",
-  "ieee.org",
-  "acm.org",
-  "biorxiv.org",
-  "medrxiv.org",
-  "pubmed.ncbi.nlm.nih.gov",
-  "ncbi.nlm.nih.gov",
-  "jstor.org",
-  "springer.com",
-  "wiley.com",
-  "tandfonline.com",
-  "sciencedirect.com",
-];
+interface ExaContentsResponse {
+  results?: ExaContentsTextResult[];
+  statuses?: Array<{
+    id?: string;
+    status: "success" | "error";
+    error?: { tag?: string; httpStatusCode?: number | null } | null;
+  }>;
+}
 
-function isAcademicUrl(url: string): boolean {
-  try {
-    const hostname = new URL(url).hostname.toLowerCase();
-    return ACADEMIC_DOMAINS_CHECK.some(
-      (domain) => hostname === domain || hostname.endsWith(`.${domain}`)
-    );
-  } catch {
-    return false;
-  }
+export interface ExaEvidenceHit {
+  id: string;
+  url: string;
+  title: string;
+  publishedDate?: string;
+  text?: string;
+  highlights?: string[];
+  score?: number;
 }
 
 async function exaFetch<T>(
@@ -106,6 +109,65 @@ async function exaFetch<T>(
     }
     throw err;
   }
+}
+
+export async function getContents(
+  urls: string[],
+  options: ExaContentsOptions = {}
+): Promise<ExaContentsResponse> {
+  const {
+    maxCharacters = 40_000,
+    includeHtmlTags = false,
+    verbosity,
+    includeSections,
+    excludeSections,
+    maxAgeHours = 24,
+  } = options;
+
+  const textConfig: Record<string, unknown> = {
+    maxCharacters,
+    includeHtmlTags,
+  };
+  if (verbosity) textConfig.verbosity = verbosity;
+  if (includeSections && includeSections.length > 0) {
+    textConfig.includeSections = includeSections;
+  }
+  if (excludeSections && excludeSections.length > 0) {
+    textConfig.excludeSections = excludeSections;
+  }
+
+  return exaFetch<ExaContentsResponse>("/contents", {
+    urls,
+    text: textConfig,
+    maxAgeHours,
+  });
+}
+
+export async function getContentText(
+  url: string,
+  options: ExaContentsOptions = {}
+): Promise<{ content: string; truncated: boolean } | null> {
+  const maxCharacters = options.maxCharacters ?? 40_000;
+  const res = await getContents([url], { ...options, maxCharacters });
+  const result =
+    res.results?.find((r) => r.url === url || r.id === url) ??
+    res.results?.[0];
+  const status =
+    res.statuses?.find(
+      (s) => s.id === url || s.id === result?.url || s.id === result?.id
+    ) ?? res.statuses?.[0];
+
+  if (status?.status === "error") {
+    return null;
+  }
+
+  const text = result?.text?.trim();
+  if (!text) return null;
+
+  return {
+    content: text.slice(0, maxCharacters),
+    truncated: text.length > maxCharacters,
+  };
 }
 
 function extractExternalIds(url: string): ExternalIds {
@@ -274,4 +336,52 @@ export async function deepSearch(
 
   const response = await exaFetch<ExaSearchResponse>("/search", body);
   return response.results.map(normalizeExaResult);
+}
+
+export async function searchEvidence(
+  query: string,
+  options: ExaSearchOptions = {}
+): Promise<ExaEvidenceHit[]> {
+  const {
+    numResults = 10,
+    startPublishedDate,
+    endPublishedDate,
+    useAutoprompt = true,
+    searchType = "auto",
+    includeDomains,
+  } = options;
+
+  const body: Record<string, unknown> = {
+    query,
+    numResults,
+    useAutoprompt,
+    type:
+      searchType === "instant"
+        ? "instant"
+        : searchType === "keyword"
+          ? "keyword"
+          : "auto",
+    category: "research paper",
+    contents: {
+      text: { maxCharacters: 1400 },
+      highlights: { numSentences: 4 },
+    },
+  };
+
+  if (includeDomains && includeDomains.length > 0) {
+    body.includeDomains = includeDomains;
+  }
+  if (startPublishedDate) body.startPublishedDate = startPublishedDate;
+  if (endPublishedDate) body.endPublishedDate = endPublishedDate;
+
+  const response = await exaFetch<ExaSearchResponse>("/search", body);
+  return response.results.map((r) => ({
+    id: r.id,
+    url: r.url,
+    title: r.title,
+    publishedDate: r.publishedDate,
+    text: r.text,
+    highlights: r.highlights,
+    score: r.score,
+  }));
 }

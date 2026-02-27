@@ -282,6 +282,18 @@ export async function executeGraphCommand(intent: GraphCommandIntent): Promise<G
         const summary = "Relayout applied to graph";
         return { applied: true, summary };
       }
+
+      case "merge-clusters": {
+        return { applied: false, summary: "Merge clusters not yet implemented" };
+      }
+
+      case "add-contradiction": {
+        return { applied: false, summary: "Add contradiction not yet implemented" };
+      }
+
+      case "save-for-later": {
+        return { applied: false, summary: "Save for later not yet implemented" };
+      }
     }
   } catch (error) {
     if (intent.type === "expand-node") {

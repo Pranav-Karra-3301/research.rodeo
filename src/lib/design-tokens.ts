@@ -49,6 +49,8 @@ export const typography = {
 
 export const layout = {
   topBar: { height: 48 },
+  sidebar: { width: 280 },
+  rightPanel: { width: 420 },
   borderRadius: {
     sm: "0.375rem",
     md: "0.5rem",

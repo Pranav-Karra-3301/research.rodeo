@@ -1,5 +1,5 @@
 // ============================================================
-// Rabbit Hole - Core Type Definitions
+// Research Rodeo - Core Type Definitions
 // ============================================================
 
 // --- Paper & Node Types ---
@@ -21,7 +21,7 @@ export interface Author {
 }
 
 export interface PaperMetadata {
-  id: string;
+  id: string; // Internal canonical ID
   externalIds: ExternalIds;
   title: string;
   authors: Author[];
@@ -37,11 +37,13 @@ export interface PaperMetadata {
   openAccessPdf?: string;
   url?: string;
   embedding?: number[];
+  // URL-sourced node extras
   ogImage?: string;
   faviconUrl?: string;
   siteDescription?: string;
   siteName?: string;
   isUrlSource?: boolean;
+  // Pre-fetched content (filled in by the add-source pipeline)
   fetchedContent?: string;
   contentTruncated?: boolean;
 }
@@ -55,19 +57,19 @@ export interface PaperNode {
   position: { x: number; y: number };
   clusterId?: string;
   scores: NodeScores;
-  addedAt: number;
+  addedAt: number; // timestamp
   expandedAt?: number;
   userNotes?: string;
   userTags?: string[];
 }
 
 export interface NodeScores {
-  relevance: number;
-  influence: number;
-  recency: number;
-  semanticSimilarity: number;
-  localCentrality: number;
-  velocity: number;
+  relevance: number; // 0-1 composite score
+  influence: number; // log(citations + 1) normalized
+  recency: number; // age-weighted citation impact
+  semanticSimilarity: number; // cosine sim to query
+  localCentrality: number; // PageRank in local graph
+  velocity: number; // citation momentum
 }
 
 // --- Edge Types ---
@@ -87,12 +89,12 @@ export type EdgeTrust = "source-backed" | "inferred";
 
 export interface GraphEdge {
   id: string;
-  source: string;
-  target: string;
+  source: string; // node id
+  target: string; // node id
   type: EdgeType;
   trust: EdgeTrust;
-  weight: number;
-  evidence?: string;
+  weight: number; // 0-1
+  evidence?: string; // explanation for inferred edges
   metadata?: Record<string, unknown>;
 }
 
@@ -104,7 +106,7 @@ export interface Cluster {
   description?: string;
   nodeIds: string[];
   color: string;
-  centroid?: number[];
+  centroid?: number[]; // embedding centroid
 }
 
 // --- Scoring & Weights ---
@@ -158,7 +160,7 @@ export type ExpansionMode = "foundational" | "recent" | "contrasting";
 export interface FrontierRequest {
   nodeId: string;
   mode: ExpansionMode;
-  budget?: number;
+  budget?: number; // max frontier nodes to return
 }
 
 export interface FrontierResult {
@@ -187,28 +189,106 @@ export interface SearchResult {
   source: "exa" | "semantic-scholar" | "openalex";
 }
 
-// --- Annotation Types (New for Rabbit Hole) ---
+// --- Annotation Types ---
 
-export type AnnotationType = "insight" | "dead-end" | "key-find" | "question" | "summary";
-
-export interface AnnotationNode {
+export interface Annotation {
   id: string;
-  type: AnnotationType;
-  content: string;
-  position: { x: number; y: number };
-  attachedToNodeId?: string;
-  clusterId?: string;
+  paperId: string;
+  text: string; // highlighted text
+  note?: string;
+  tags: string[];
+  type?: "method" | "assumption" | "result" | "limitation" | "key-claim";
   createdAt: number;
 }
 
-export type AnnotationNodeData = {
-  annotation: AnnotationNode;
-  isSelected?: boolean;
-  onEdit?: (content: string) => void;
-  onDelete?: () => void;
-};
+// --- Rabbit Hole Workflow Types ---
 
-// --- Command Types ---
+export type RabbitHoleLayer = 0 | 1 | 2 | 3;
+
+export type LayerStatus = "pending" | "active" | "completed";
+
+export interface ScopeQuestion {
+  id: string;
+  question: string;
+  rationale?: string;
+}
+
+export interface ScopeAnswer {
+  questionId: string;
+  answer: string;
+}
+
+export type EvidenceCardType = "source" | "contradiction" | "gap";
+
+export type EvidenceCardStatus =
+  | "new"
+  | "added"
+  | "contradiction"
+  | "saved"
+  | "dismissed";
+
+export type EvidenceConfidence = "high" | "medium" | "low";
+
+export interface EvidenceCitation {
+  title?: string;
+  url: string;
+  snippet?: string;
+}
+
+export interface EvidenceCard {
+  id: string;
+  rabbitHoleId: string;
+  layer: RabbitHoleLayer;
+  type: EvidenceCardType;
+  status: EvidenceCardStatus;
+  title: string;
+  url?: string;
+  snippet?: string;
+  confidence: EvidenceConfidence;
+  citations: EvidenceCitation[];
+  payload?: Record<string, unknown>;
+  linkedNodeId?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface AppliedChangeEvent {
+  id: string;
+  rabbitHoleId: string;
+  source: "chat" | "canvas" | "system";
+  actionType: string;
+  summary: string;
+  payload?: Record<string, unknown>;
+  createdAt: number;
+}
+
+// --- Chat Threading Types ---
+
+export interface ChatThread {
+  id: string;
+  rabbitHoleId: string;
+  title?: string;
+  createdAt: number;
+  updatedAt: number;
+  nextSeq: number;
+}
+
+export interface ChatMessageRecord {
+  id: string;
+  rabbitHoleId: string;
+  threadId: string;
+  seq: number;
+  role: string;
+  messageJson: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ChatReasoningState {
+  mode: "compact" | "full" | "off";
+  active: boolean;
+  compacted: boolean;
+}
 
 export type GraphCommandIntent =
   | {
@@ -216,6 +296,7 @@ export type GraphCommandIntent =
       paper: PaperMetadata;
       materialize?: boolean;
       source?: "chat" | "canvas" | "system";
+      evidenceCardId?: string;
     }
   | {
       type: "connect-nodes";
@@ -235,12 +316,33 @@ export type GraphCommandIntent =
       source?: "chat" | "canvas" | "system";
     }
   | {
+      type: "merge-clusters";
+      clusterIdA: string;
+      clusterIdB: string;
+      source?: "chat" | "canvas" | "system";
+    }
+  | {
       type: "archive-node";
       nodeId: string;
       source?: "chat" | "canvas" | "system";
     }
   | {
       type: "relayout";
+      source?: "chat" | "canvas" | "system";
+    }
+  | {
+      type: "add-contradiction";
+      anchorNodeId?: string;
+      paper?: PaperMetadata;
+      title?: string;
+      url?: string;
+      snippet?: string;
+      source?: "chat" | "canvas" | "system";
+      evidenceCardId?: string;
+    }
+  | {
+      type: "save-for-later";
+      evidenceCardId: string;
       source?: "chat" | "canvas" | "system";
     };
 
@@ -250,6 +352,57 @@ export interface GraphCommandResult {
   error?: string;
   addedNodeIds?: string[];
   addedEdgeIds?: string[];
+}
+
+// --- Chat Types ---
+
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  citations?: Citation[];
+  actions?: AgentAction[];
+  timestamp: number;
+}
+
+export interface Citation {
+  paperId: string;
+  title: string;
+  snippet?: string;
+  relevance?: string;
+}
+
+export interface AgentAction {
+  type: "expand" | "highlight" | "add-edge" | "filter" | "navigate" | "export";
+  payload: Record<string, unknown>;
+  description: string;
+}
+
+// --- Project Types ---
+
+export interface Project {
+  id: string;
+  name: string;
+  rootQuery: string;
+  createdAt: number;
+  updatedAt: number;
+  weights: WeightConfig;
+  nodes: PaperNode[];
+  edges: GraphEdge[];
+  clusters: Cluster[];
+  annotations: Annotation[];
+  chatHistory: ChatMessage[];
+}
+
+// --- Export Types ---
+
+export type ExportFormat = "bibtex" | "ris" | "json" | "markdown" | "obsidian";
+
+export interface ExportRequest {
+  format: ExportFormat;
+  nodeIds?: string[]; // if empty, export all
+  includeReview?: boolean; // generate lit review draft
+  clusterId?: string;
 }
 
 // --- API Response Types ---
@@ -271,11 +424,32 @@ export type GraphNodeData = {
   isMultiSelected?: boolean;
   isExpanding?: boolean;
   isFrontier?: boolean;
-  recencyColor?: string;
-  dimensions?: { width: number; height: number; fontScale: number };
-  fadeOpacity?: number;
   onExpand?: (mode: ExpansionMode) => void;
   onSelect?: () => void;
   onMaterialize?: () => void;
+  recencyColor?: string;
+  dimensions?: { width: number; height: number; fontScale: number };
+  fadeOpacity?: number;
   [key: string]: unknown;
+}
+
+/* ── Annotation types (new for rabbits branch) ─────────────────── */
+
+export type AnnotationType = "insight" | "dead-end" | "key-find" | "question" | "summary";
+
+export interface AnnotationNode {
+  id: string;
+  type: AnnotationType;
+  content: string;
+  position: { x: number; y: number };
+  attachedToNodeId?: string;
+  clusterId?: string;
+  createdAt: number;
+}
+
+export type AnnotationNodeData = {
+  annotation: AnnotationNode;
+  isSelected?: boolean;
+  onEdit?: (content: string) => void;
+  onDelete?: () => void;
 };
