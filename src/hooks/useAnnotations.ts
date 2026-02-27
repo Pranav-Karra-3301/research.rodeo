@@ -1,32 +1,8 @@
 "use client";
 
 import { useCallback } from "react";
-import { nanoid } from "nanoid";
 import { useGraphStore } from "@/store/graph-store";
-import type { AnnotationNode, AnnotationType } from "@/types";
-
-function createAnnotation(
-  type: AnnotationType,
-  content: string,
-  attachedToNodeId?: string,
-  clusterId?: string
-): AnnotationNode {
-  const node = attachedToNodeId
-    ? useGraphStore.getState().nodes.get(attachedToNodeId)
-    : undefined;
-
-  return {
-    id: `annotation-${nanoid(8)}`,
-    type,
-    content,
-    position: node
-      ? { x: node.position.x + 200, y: node.position.y - 50 }
-      : { x: Math.random() * 400, y: Math.random() * 400 },
-    attachedToNodeId,
-    clusterId,
-    createdAt: Date.now(),
-  };
-}
+import { createAnnotation } from "@/lib/graph/annotations";
 
 export function useAnnotations() {
   const addInsight = useCallback((attachedToNodeId?: string, content?: string) => {

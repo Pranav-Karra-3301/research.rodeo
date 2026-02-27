@@ -333,10 +333,10 @@ export async function POST(req: Request) {
           };
         },
       }),
-      // Graph-mutating tools return { queued: true }; the client applies them when the user clicks Apply in ChatDock.
+      // Graph-mutating tools return action data; the client auto-executes them.
       addGraphNode: tool({
         description:
-          "Add a source or paper node to the graph. Use when the user wants to add a specific source, paper, or URL. The action will be queued for the user to apply in the chat UI.",
+          "Add a source or paper node to the graph. Use when the user wants to add a specific source, paper, or URL. The action executes automatically.",
         inputSchema: z.object({
           title: z.string().describe("Source or paper title"),
           url: z.string().url().optional().describe("Optional source URL (article, PDF, etc.)"),
@@ -376,14 +376,13 @@ export async function POST(req: Request) {
             .describe("Optional external identifiers"),
         }),
         execute: async () => ({
-          queued: true,
           action: "addGraphNode",
-          message: "Add-node action queued. The user can apply or reject it in the chat.",
+          message: "Adding source to graph",
         }),
       }),
       connectGraphNodes: tool({
         description:
-          "Connect two existing nodes with a directed edge. Use to record citations, semantic similarity, contradictions, or other relationships. The action will be queued for the user to apply.",
+          "Connect two existing nodes with a directed edge. Use to record citations, semantic similarity, contradictions, or other relationships.",
         inputSchema: z.object({
           sourceId: z.string().describe("ID of the source node"),
           targetId: z.string().describe("ID of the target node"),
@@ -403,14 +402,13 @@ export async function POST(req: Request) {
           reason: z.string().optional().describe("Optional evidence or explanation for inferred edges"),
         }),
         execute: async () => ({
-          queued: true,
           action: "connectGraphNodes",
-          message: "Connect-nodes action queued. The user can apply or reject it in the chat.",
+          message: "Connecting nodes",
         }),
       }),
       expandGraphNode: tool({
         description:
-          "Expand a node to discover related papers: foundational (key references), recent (citing work), or contrasting (opposing views). The action will be queued for the user to apply.",
+          "Expand a node to discover related papers: foundational (key references), recent (citing work), or contrasting (opposing views). Executes automatically.",
         inputSchema: z.object({
           nodeId: z.string().describe("ID of the node to expand"),
           mode: z
@@ -419,49 +417,45 @@ export async function POST(req: Request) {
           budget: z.number().optional().describe("Max number of new nodes (default from UI)"),
         }),
         execute: async () => ({
-          queued: true,
           action: "expandGraphNode",
-          message: "Expand-node action queued. The user can apply or reject it in the chat.",
+          message: "Expanding node",
         }),
       }),
       mergeGraphClusters: tool({
         description:
-          "Merge two clusters into one. The action will be queued for the user to apply.",
+          "Merge two clusters into one.",
         inputSchema: z.object({
           clusterIdA: z.string(),
           clusterIdB: z.string(),
         }),
         execute: async () => ({
-          queued: true,
           action: "mergeGraphClusters",
-          message: "Merge-clusters action queued. The user can apply or reject it in the chat.",
+          message: "Merging clusters",
         }),
       }),
       archiveGraphNode: tool({
         description:
-          "Archive a node (remove from active graph view). The action will be queued for the user to apply.",
+          "Archive a node (remove from active graph view). Requires user confirmation before executing.",
         inputSchema: z.object({
           nodeId: z.string().describe("ID of the node to archive"),
         }),
         execute: async () => ({
-          queued: true,
           action: "archiveGraphNode",
-          message: "Archive-node action queued. The user can apply or reject it in the chat.",
+          message: "Archive requested — awaiting confirmation",
         }),
       }),
       relayoutGraph: tool({
         description:
-          "Trigger a graph layout recomputation so nodes are repositioned. The action will be queued for the user to apply.",
+          "Trigger a graph layout recomputation so nodes are repositioned.",
         inputSchema: z.object({}),
         execute: async () => ({
-          queued: true,
           action: "relayoutGraph",
-          message: "Relayout action queued. The user can apply it in the chat.",
+          message: "Recomputing layout",
         }),
       }),
       addContradictionCard: tool({
         description:
-          "Add a contradiction or opposing-view card linked to the graph. The action will be queued for the user to apply.",
+          "Add a contradiction or opposing-view card linked to the graph.",
         inputSchema: z.object({
           anchorNodeId: z.string().optional().describe("Node this contradicts or relates to"),
           title: z.string().describe("Title of the contradictory source"),
@@ -470,21 +464,62 @@ export async function POST(req: Request) {
           evidenceCardId: z.string().optional(),
         }),
         execute: async () => ({
-          queued: true,
           action: "addContradictionCard",
-          message: "Contradiction-card action queued. The user can apply or reject it in the chat.",
+          message: "Adding contradiction card",
         }),
       }),
       saveCardForLater: tool({
         description:
-          "Mark an evidence card as saved for later. The action will be queued for the user to apply.",
+          "Mark an evidence card as saved for later.",
         inputSchema: z.object({
           evidenceCardId: z.string().describe("ID of the evidence card to save"),
         }),
         execute: async () => ({
-          queued: true,
           action: "saveCardForLater",
-          message: "Save-card action queued. The user can apply it in the chat.",
+          message: "Saving card for later",
+        }),
+      }),
+      // Annotation tools — return action data for client-side execution
+      addInsightToNode: tool({
+        description:
+          "Add an insight annotation to a node in the graph. Use when the user wants to note an observation, takeaway, or insight about a specific paper.",
+        inputSchema: z.object({
+          nodeId: z.string().describe("ID of the node to annotate"),
+          content: z.string().describe("The insight text"),
+        }),
+        execute: async ({ nodeId, content }) => ({
+          action: "addInsight",
+          nodeId,
+          content,
+          message: `Insight added to node ${nodeId}`,
+        }),
+      }),
+      markAsKeyFinding: tool({
+        description:
+          "Mark a node as a key finding / starred paper. Use when the user says a paper is important, key, or wants to star/favorite it.",
+        inputSchema: z.object({
+          nodeId: z.string().describe("ID of the node to mark"),
+          description: z.string().optional().describe("Optional reason why this is a key finding"),
+        }),
+        execute: async ({ nodeId, description }) => ({
+          action: "markAsKeyFinding",
+          nodeId,
+          description,
+          message: `Marked node ${nodeId} as key finding`,
+        }),
+      }),
+      markAsDeadEnd: tool({
+        description:
+          "Mark a node as a dead end. Use when the user says a paper is not relevant, a dead end, or should be deprioritized.",
+        inputSchema: z.object({
+          nodeId: z.string().describe("ID of the node to mark"),
+          reason: z.string().optional().describe("Optional reason"),
+        }),
+        execute: async ({ nodeId, reason }) => ({
+          action: "markAsDeadEnd",
+          nodeId,
+          reason,
+          message: `Marked node ${nodeId} as dead end`,
         }),
       }),
       exportBibTeX: tool({
