@@ -1,4 +1,4 @@
-import type { PaperNode, Cluster, WeightConfig } from "@/types";
+import type { PaperNode, Cluster, WeightConfig, AnnotationNode } from "@/types";
 import { sanitizeAbstractText } from "@/lib/utils";
 
 /**
@@ -143,8 +143,25 @@ export function retrieveRelevantPapers(
 }
 
 /**
- * Assemble a 3-tier context for the chat system prompt.
- * Returns an array of context strings: [brief, clusters, papers]
+ * Build context for user annotations (insights, key findings, dead ends, etc.)
+ */
+export function buildAnnotationContext(
+  annotations: AnnotationNode[],
+  nodes: PaperNode[]
+): string {
+  if (annotations.length === 0) return "";
+  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
+  const lines = annotations.map((a) => {
+    const node = a.attachedToNodeId ? nodeMap.get(a.attachedToNodeId) : undefined;
+    const label = node ? node.data.title : (a.clusterId ?? "general");
+    return `- [${a.type}] on "${label}": ${a.content}`;
+  });
+  return `## User Annotations\n${lines.join("\n")}`;
+}
+
+/**
+ * Assemble a multi-tier context for the chat system prompt.
+ * Returns an array of context strings: [brief, clusters, papers, annotations]
  */
 export function assembleContext(
   project: {
@@ -152,6 +169,7 @@ export function assembleContext(
     weights: WeightConfig;
     nodes: PaperNode[];
     clusters: Cluster[];
+    annotations?: AnnotationNode[];
   },
   question: string
 ): string[] {
@@ -166,5 +184,12 @@ export function assembleContext(
 
   const papers = retrieveRelevantPapers(question, project.nodes);
 
-  return [brief, clusterBriefs, papers].filter((s) => s.length > 0);
+  const annotationCtx = buildAnnotationContext(
+    project.annotations ?? [],
+    project.nodes
+  );
+
+  return [brief, clusterBriefs, papers, annotationCtx].filter(
+    (s) => s.length > 0
+  );
 }
