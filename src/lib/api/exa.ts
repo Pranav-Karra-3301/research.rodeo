@@ -11,7 +11,7 @@ function getApiKey(): string {
   return key;
 }
 
-export type ExaSearchType = "auto" | "instant" | "keyword";
+export type ExaSearchType = "auto" | "neural" | "instant" | "fast" | "deep" | "deep-reasoning" | "deep-max";
 
 export interface ExaSearchOptions {
   numResults?: number;
@@ -244,7 +244,7 @@ export async function searchPapers(
     query,
     numResults,
     useAutoprompt,
-    type: searchType === "instant" ? "instant" : searchType === "keyword" ? "keyword" : "auto",
+    type: searchType,
     category: "research paper",
     contents: {
       text: { maxCharacters: 1000 },
@@ -355,12 +355,7 @@ export async function searchEvidence(
     query,
     numResults,
     useAutoprompt,
-    type:
-      searchType === "instant"
-        ? "instant"
-        : searchType === "keyword"
-          ? "keyword"
-          : "auto",
+    type: searchType,
     category: "research paper",
     contents: {
       text: { maxCharacters: 1400 },
