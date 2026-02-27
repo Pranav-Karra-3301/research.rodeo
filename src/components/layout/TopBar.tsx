@@ -3,14 +3,10 @@
 import { useCallback } from "react";
 import {
   Search,
-  Sliders,
-  MessageSquare,
   Download,
   PanelLeft,
-  Link2,
-  Clock,
+  Plus,
 } from "lucide-react";
-import { AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import {
@@ -18,23 +14,25 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/Tooltip";
-import { WeightControls } from "@/components/weights/WeightControls";
 import { useGraphStore } from "@/store/graph-store";
 import { useUIStore } from "@/store/ui-store";
+import type { CurrentView } from "@/store/ui-store";
 import { cn } from "@/lib/utils";
 import { layout } from "@/lib/design-tokens";
+
+const VIEW_OPTIONS: { value: CurrentView; label: string }[] = [
+  { value: "graph", label: "Graph" },
+  { value: "list", label: "List" },
+  { value: "chat", label: "Chat" },
+];
 
 export function TopBar() {
   const nodes = useGraphStore((s) => s.nodes);
   const rightPanel = useUIStore((s) => s.rightPanel);
   const toggleRightPanel = useUIStore((s) => s.toggleRightPanel);
-  const chatDockOpen = useUIStore((s) => s.chatDockOpen);
-  const toggleChatDock = useUIStore((s) => s.toggleChatDock);
   const toggleSearch = useUIStore((s) => s.toggleSearch);
   const togglePaperList = useUIStore((s) => s.togglePaperList);
   const paperListOpen = useUIStore((s) => s.paperListOpen);
-  const weightsPanelOpen = useUIStore((s) => s.weightsPanelOpen);
-  const toggleWeights = useUIStore((s) => s.toggleWeights);
   const openAddSource = useUIStore((s) => s.openAddSource);
   const currentView = useUIStore((s) => s.currentView);
   const setCurrentView = useUIStore((s) => s.setCurrentView);
@@ -85,7 +83,7 @@ export function TopBar() {
             width={32}
             height={32}
           />
-          <span className="text-sm font-semibold text-[#1c1917] truncate">
+          <span className="text-sm font-semibold text-[#1c1917] truncate hidden lg:inline">
             Research Rodeo
           </span>
         </div>
@@ -94,28 +92,20 @@ export function TopBar() {
       {/* Center: View toggle + node count */}
       <div className="flex items-center gap-2">
         <div className="flex items-center rounded-lg bg-[#f3f2ee] p-0.5 border border-[#e8e7e2]">
-          <button
-            onClick={() => setCurrentView("graph")}
-            className={cn(
-              "px-3 py-1 rounded-md text-xs font-medium transition-colors",
-              currentView === "graph"
-                ? "bg-white text-[#1c1917] shadow-sm"
-                : "text-[#78716c] hover:text-[#44403c]"
-            )}
-          >
-            Graph
-          </button>
-          <button
-            onClick={() => setCurrentView("list")}
-            className={cn(
-              "px-3 py-1 rounded-md text-xs font-medium transition-colors",
-              currentView === "list"
-                ? "bg-white text-[#1c1917] shadow-sm"
-                : "text-[#78716c] hover:text-[#44403c]"
-            )}
-          >
-            List
-          </button>
+          {VIEW_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => setCurrentView(opt.value)}
+              className={cn(
+                "px-3 py-1 rounded-md text-xs font-medium transition-colors",
+                currentView === opt.value
+                  ? "bg-white text-[#1c1917] shadow-sm"
+                  : "text-[#78716c] hover:text-[#44403c]"
+              )}
+            >
+              {opt.label}
+            </button>
+          ))}
         </div>
 
         {nodeCount > 0 && (
@@ -127,19 +117,20 @@ export function TopBar() {
 
       {/* Right: Actions */}
       <div className="flex items-center gap-1">
-        {/* Add source (URL) */}
+        {/* Add Sources */}
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
               variant="ghost"
-              size="icon"
-              className="h-8 w-8"
+              size="sm"
               onClick={() => openAddSource()}
+              className="gap-1.5 text-xs text-[#57534e]"
             >
-              <Link2 className="w-3.5 h-3.5 text-[#57534e]" />
+              <Plus className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Add Sources</span>
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Add source from URL (PDF, video, link) — Cmd+V</TooltipContent>
+          <TooltipContent>Add source from URL (PDF, video, link) -- Cmd+V</TooltipContent>
         </Tooltip>
 
         {/* Search */}
@@ -159,61 +150,6 @@ export function TopBar() {
             </Button>
           </TooltipTrigger>
           <TooltipContent>Search papers (Cmd+K)</TooltipContent>
-        </Tooltip>
-
-        {/* Weights */}
-        <div className="relative">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant={weightsPanelOpen ? "default" : "ghost"}
-                size="icon"
-                className="h-8 w-8"
-                onClick={toggleWeights}
-              >
-                <Sliders className="w-3.5 h-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Scoring weights</TooltipContent>
-          </Tooltip>
-
-          <AnimatePresence>
-            {weightsPanelOpen && (
-              <div className="absolute right-0 top-full mt-2 z-50">
-                <WeightControls />
-              </div>
-            )}
-          </AnimatePresence>
-        </div>
-
-        {/* Chat */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant={chatDockOpen ? "default" : "ghost"}
-              size="icon"
-              className="h-8 w-8"
-              onClick={toggleChatDock}
-            >
-              <MessageSquare className="w-3.5 h-3.5" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Toggle chat dock (Cmd+/)</TooltipContent>
-        </Tooltip>
-
-        {/* Timeline */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant={rightPanel === "timeline" ? "default" : "ghost"}
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => handleTogglePanel("timeline")}
-            >
-              <Clock className="w-3.5 h-3.5" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Exploration timeline</TooltipContent>
         </Tooltip>
 
         {/* Export */}
