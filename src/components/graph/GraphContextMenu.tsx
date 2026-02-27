@@ -5,6 +5,7 @@ import {
   Compass, History, Quote, Swords,
   Archive, Maximize, Map, LayoutGrid,
   Trash2, Lightbulb, X, Star, HelpCircle,
+  Plus, Eraser,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAnnotations } from "@/hooks/useAnnotations";
@@ -29,6 +30,8 @@ interface CanvasMenuProps {
   onFitView: () => void;
   onToggleMinimap: () => void;
   onAutoLayout: () => void;
+  onAddSource?: () => void;
+  onClearGraph?: () => void;
   onClose: () => void;
 }
 
@@ -138,11 +141,22 @@ function buildNodeMenuGroups(
 }
 
 function buildCanvasMenuGroups(props: CanvasMenuProps): MenuItem[][] {
-  return [
+  const groups: MenuItem[][] = [
     [
       { label: "Fit view", icon: Maximize, onClick: props.onFitView },
       { label: "Toggle minimap", icon: Map, onClick: props.onToggleMinimap },
       { label: "Auto-layout", icon: LayoutGrid, onClick: props.onAutoLayout },
     ],
   ];
+  if (props.onAddSource) {
+    groups.push([
+      { label: "Add source", icon: Plus, onClick: props.onAddSource },
+    ]);
+  }
+  if (props.onClearGraph) {
+    groups.push([
+      { label: "Clear graph", icon: Eraser, onClick: props.onClearGraph, danger: true },
+    ]);
+  }
+  return groups;
 }

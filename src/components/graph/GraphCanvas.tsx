@@ -30,7 +30,17 @@ import { useUIStore } from "@/store/ui-store";
 import { useHistoryStore } from "@/store/history-store";
 import { useEgoNavigation } from "@/hooks/useEgoNavigation";
 import { useSemanticZoom } from "@/hooks/useSemanticZoom";
+import {
+  persistAddNodes,
+  persistAddEdges,
+  persistRemoveNodes,
+  persistRemoveEdges,
+  persistSetClusters,
+  persistUpdateNodePositions,
+  persistClearGraph,
+} from "@/lib/db/graph-actions";
 import { executeGraphCommand } from "@/lib/graph/commands";
+import { useKeyboard } from "@/hooks/useKeyboard";
 import type { ExpansionMode, GraphNodeData } from "@/types";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -59,6 +69,7 @@ interface ContextMenuState {
   nodeTitle?: string;
 }
 
+/** When a node is materialized, fit view to it and select it so the user sees the new paper node. */
 function FitViewOnMaterialize() {
   const lastMaterializedNodeId = useGraphStore((s) => s.lastMaterializedNodeId);
   const clearLastMaterializedNodeId = useGraphStore((s) => s.clearLastMaterializedNodeId);
@@ -68,12 +79,7 @@ function FitViewOnMaterialize() {
   useEffect(() => {
     if (!lastMaterializedNodeId) return;
     const timer = requestAnimationFrame(() => {
-      fitView({
-        nodes: [{ id: lastMaterializedNodeId }],
-        padding: 0.3,
-        maxZoom: 1.25,
-        duration: 300,
-      });
+      fitView({ nodes: [{ id: lastMaterializedNodeId }], padding: 0.3, maxZoom: 1.25, duration: 300 });
       selectNode(lastMaterializedNodeId);
       clearLastMaterializedNodeId();
     });
@@ -87,11 +93,14 @@ export function GraphCanvas() {
   const { rfNodes, rfEdges, onNodesChange: hookNC, onEdgesChange: hookEC } = useGraph();
   const selectNode = useGraphStore((s) => s.selectNode);
   const toggleNodeSelection = useGraphStore((s) => s.toggleNodeSelection);
+  const selectAllNodes = useGraphStore((s) => s.selectAllNodes);
   const clearSelection = useGraphStore((s) => s.clearSelection);
+  const setRightPanel = useUIStore((s) => s.setRightPanel);
   const toggleSearch = useUIStore((s) => s.toggleSearch);
+  const toggleChatDock = useUIStore((s) => s.toggleChatDock);
+  const openAddSource = useUIStore((s) => s.openAddSource);
   const { navigateToNode } = useEgoNavigation();
   const { zoomLevel } = useSemanticZoom();
-  const { fitView: rfFitView } = useReactFlow();
 
   const [nodes, setNodes, onNC] = useNodesState(rfNodes);
   const [edges, setEdges, onEC] = useEdgesState(rfEdges);
@@ -111,18 +120,20 @@ export function GraphCanvas() {
   );
 
   const handleNodeClick: NodeMouseHandler = useCallback((e, node) => {
+    // Shift+click: toggle multi-select
     if (e.shiftKey) {
       toggleNodeSelection(node.id);
       setCtxMenu(null);
       return;
     }
-    // Ego-centric navigation on click
+    // Ego-centric navigation on click (skip annotation nodes)
     if (!node.id.startsWith("annotation-")) {
       navigateToNode(node.id);
     }
     selectNode(node.id);
+    setRightPanel("reader");
     setCtxMenu(null);
-  }, [selectNode, toggleNodeSelection, navigateToNode]);
+  }, [selectNode, toggleNodeSelection, navigateToNode, setRightPanel]);
 
   const handleNodeCtx: NodeMouseHandler = useCallback((e, node) => {
     e.preventDefault();
@@ -147,7 +158,7 @@ export function GraphCanvas() {
 
   const handleNodeDragStop: NodeMouseHandler = useCallback((_e, node) => {
     const posMap = new Map([[node.id, { x: node.position.x, y: node.position.y }]]);
-    useGraphStore.getState().updateNodePositions(posMap);
+    persistUpdateNodePositions(posMap);
   }, []);
 
   const closeMenu = useCallback(() => setCtxMenu(null), []);
@@ -160,74 +171,85 @@ export function GraphCanvas() {
     void executeGraphCommand({ type: "archive-node", nodeId, source: "canvas" });
   }, []);
 
-  const handleDeleteSelected = useCallback(() => {
-    const { selectedNodeIds, selectedNodeId } = useGraphStore.getState();
-    const nodeIds = selectedNodeIds.size > 0
-      ? Array.from(selectedNodeIds)
-      : selectedNodeId ? [selectedNodeId] : [];
+  const handleDeleteWithHistory = useCallback((nodeIds: string[]) => {
     if (nodeIds.length === 0) return;
 
+    const recalculateAndPersist = () => {
+      const store = useGraphStore.getState();
+      store.recalculateScores();
+      store.recalculateClusters();
+      persistSetClusters(useGraphStore.getState().clusters);
+    };
+
+    // Snapshot nodes and their edges for undo
     const graph = useGraphStore.getState();
-    const removeSet = new Set(nodeIds);
     const removedNodes = nodeIds
       .map((id) => graph.nodes.get(id))
       .filter((n): n is NonNullable<typeof n> => n != null)
       .map((n) => ({ ...n }));
+    const removeSet = new Set(nodeIds);
     const removedEdges = graph.edges
       .filter((e) => removeSet.has(e.source) || removeSet.has(e.target))
       .map((e) => ({ ...e }));
 
-    useGraphStore.getState().removeNodes(nodeIds);
-    useGraphStore.getState().removeEdges(removedEdges.map((e) => e.id));
-    useGraphStore.getState().recalculateScores();
-    useGraphStore.getState().recalculateClusters();
-    clearSelection();
+    const removedEdgeIds = removedEdges.map((edge) => edge.id);
+    if (removedEdgeIds.length > 0) {
+      persistRemoveEdges(removedEdgeIds);
+    }
+    persistRemoveNodes(nodeIds);
+    recalculateAndPersist();
 
     useHistoryStore.getState().push({
       description: `Deleted ${nodeIds.length} node(s)`,
       undo: () => {
-        useGraphStore.getState().addNodes(removedNodes);
-        useGraphStore.getState().addEdges(removedEdges);
-        useGraphStore.getState().recalculateScores();
-        useGraphStore.getState().recalculateClusters();
+        if (removedNodes.length > 0) {
+          persistAddNodes(removedNodes);
+        }
+        if (removedEdges.length > 0) {
+          persistAddEdges(removedEdges);
+        }
+        recalculateAndPersist();
       },
       redo: () => {
-        useGraphStore.getState().removeNodes(nodeIds);
-        useGraphStore.getState().removeEdges(removedEdges.map((e) => e.id));
-        useGraphStore.getState().recalculateScores();
-        useGraphStore.getState().recalculateClusters();
+        if (removedEdgeIds.length > 0) {
+          persistRemoveEdges(removedEdgeIds);
+        }
+        persistRemoveNodes(nodeIds);
+        recalculateAndPersist();
       },
     });
-  }, [clearSelection]);
+  }, []);
+
+  const handleDeleteSelected = useCallback(() => {
+    const { selectedNodeIds, selectedNodeId } = useGraphStore.getState();
+    if (selectedNodeIds.size > 0) {
+      handleDeleteWithHistory(Array.from(selectedNodeIds));
+      clearSelection();
+    } else if (selectedNodeId) {
+      handleDeleteWithHistory([selectedNodeId]);
+    }
+  }, [handleDeleteWithHistory, clearSelection]);
 
   const handleRelayout = useCallback(async () => {
     await executeGraphCommand({ type: "relayout", source: "canvas" });
   }, []);
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault();
-        toggleSearch();
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key === "z" && !e.shiftKey) {
-        e.preventDefault();
-        useHistoryStore.getState().undo();
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key === "z" && e.shiftKey) {
-        e.preventDefault();
-        useHistoryStore.getState().redo();
-      }
-      if (e.key === "Delete" || e.key === "Backspace") {
-        if ((e.target as HTMLElement)?.tagName !== "INPUT" && (e.target as HTMLElement)?.tagName !== "TEXTAREA") {
-          handleDeleteSelected();
-        }
-      }
-    }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [toggleSearch, handleDeleteSelected]);
+  // Wire up keyboard shortcuts
+  useKeyboard({
+    onToggleSearch: toggleSearch,
+    onToggleChat: toggleChatDock,
+    onToggleExport: useCallback(() => {
+      useUIStore.getState().toggleRightPanel("export");
+    }, []),
+    onClosePanel: useCallback(() => {
+      useUIStore.getState().setRightPanel(null);
+      clearSelection();
+    }, [clearSelection]),
+    onUndo: useCallback(() => useHistoryStore.getState().undo(), []),
+    onRedo: useCallback(() => useHistoryStore.getState().redo(), []),
+    onSelectAll: selectAllNodes,
+    onDeleteSelected: handleDeleteSelected,
+  });
 
   return (
     <div className="w-full h-full relative">
@@ -283,22 +305,52 @@ export function GraphCanvas() {
           nodeTitle={ctxMenu.nodeTitle ?? ""}
           onExpand={(mode) => handleExpandNode(ctxMenu.nodeId!, mode)}
           onArchive={() => handleArchiveNode(ctxMenu.nodeId!)}
-          onDelete={() => { handleDeleteSelected(); closeMenu(); }}
+          onDelete={() => { handleDeleteWithHistory([ctxMenu.nodeId!]); closeMenu(); }}
           onClose={closeMenu}
         />
       )}
       {ctxMenu?.type === "canvas" && (
-        <GraphContextMenu
-          type="canvas"
+        <PaneMenu
           position={ctxMenu.position}
-          onFitView={() => {
-            rfFitView({ padding: 0.25, maxZoom: 1.25 });
-          }}
           onToggleMinimap={() => setMinimap(!minimap)}
-          onAutoLayout={() => { void handleRelayout(); }}
+          onRelayout={handleRelayout}
+          onAddSource={openAddSource}
+          onClearGraph={persistClearGraph}
           onClose={closeMenu}
         />
       )}
     </div>
+  );
+}
+
+function PaneMenu({
+  position,
+  onToggleMinimap,
+  onRelayout,
+  onAddSource,
+  onClearGraph,
+  onClose,
+}: {
+  position: { x: number; y: number };
+  onToggleMinimap: () => void;
+  onRelayout: () => Promise<void>;
+  onAddSource: () => void;
+  onClearGraph: () => void;
+  onClose: () => void;
+}) {
+  const { fitView } = useReactFlow();
+  return (
+    <GraphContextMenu
+      type="canvas"
+      position={position}
+      onFitView={() => fitView({ padding: 0.25, maxZoom: 1.25 })}
+      onToggleMinimap={onToggleMinimap}
+      onAutoLayout={() => {
+        void onRelayout().then(() => fitView({ padding: 0.25, maxZoom: 1.25 }));
+      }}
+      onAddSource={onAddSource}
+      onClearGraph={onClearGraph}
+      onClose={onClose}
+    />
   );
 }
