@@ -29,8 +29,15 @@ export function useEgoNavigation() {
     useGraphStore.getState().updateNodePositions(positions);
     useGraphStore.getState().setFocusNode(nodeId);
 
-    // Center viewport
-    reactFlow.setCenter(0, 0, { zoom: 1.0, duration: 400 });
+    // Center viewport on the focus node
+    setTimeout(() => {
+      reactFlow.fitView({
+        nodes: [{ id: nodeId }],
+        padding: 0.3,
+        maxZoom: 1.2,
+        duration: 400,
+      });
+    }, 50);
 
     setTimeout(() => {
       useNavigationStore.getState().setTransitioning(false);
