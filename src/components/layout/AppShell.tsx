@@ -2,19 +2,17 @@
 
 import { useEffect } from "react";
 import dynamic from "next/dynamic";
-import Image from "next/image";
-import { Search } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { TooltipProvider } from "@/components/ui/Tooltip";
-import { Button } from "@/components/ui/Button";
 import { GraphCanvas } from "@/components/graph/GraphCanvas";
-import { ChatDock } from "@/components/chat/ChatDock";
+import { UnifiedChatInput } from "@/components/chat/UnifiedChatInput";
+import { ChatView } from "@/components/chat/ChatView";
+import { ListView } from "@/components/list/ListView";
 import { SearchBar } from "@/components/search/SearchBar";
 import { TopBar } from "@/components/layout/TopBar";
 import { StatusBar } from "@/components/layout/StatusBar";
 import { PaperListSidebar } from "@/components/layout/PaperListSidebar";
 import { AddSourceDialog } from "@/components/source/AddSourceDialog";
-import { useGraphStore } from "@/store/graph-store";
 import { useUIStore } from "@/store/ui-store";
 import { layout, animation } from "@/lib/design-tokens";
 import { isValidSourceUrl } from "@/lib/utils/url-source";
@@ -46,14 +44,10 @@ function RightPanelSkeleton() {
 }
 
 export function AppShell() {
-  const nodesMap = useGraphStore((s) => s.nodes);
   const rightPanel = useUIStore((s) => s.rightPanel);
-  const chatDockOpen = useUIStore((s) => s.chatDockOpen);
   const paperListOpen = useUIStore((s) => s.paperListOpen);
-  const toggleSearch = useUIStore((s) => s.toggleSearch);
+  const currentView = useUIStore((s) => s.currentView);
   const openAddSource = useUIStore((s) => s.openAddSource);
-
-  const hasNodes = nodesMap.size > 0;
 
   // Cmd+V: open Add source dialog; if clipboard is a URL, pre-fill it
   useEffect(() => {
@@ -74,6 +68,13 @@ export function AppShell() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [openAddSource]);
 
+  // Stub handler for UnifiedChatInput message sends
+  const handleChatSend = (_text: string) => {
+    // In graph view, chat messages go through the ChatView's useChat.
+    // Switch to chat view so the user sees the response.
+    useUIStore.getState().setCurrentView("chat");
+  };
+
   return (
     <TooltipProvider delayDuration={300}>
       <div className="flex flex-col h-screen w-screen bg-[#f8f7f4] text-[#1c1917] overflow-hidden">
@@ -84,7 +85,7 @@ export function AppShell() {
         <div className="flex flex-1 overflow-hidden">
           {/* Left: Paper List Sidebar */}
           <AnimatePresence initial={false}>
-            {paperListOpen && (
+            {paperListOpen && currentView !== "chat" && (
               <motion.div
                 initial={{ width: 0, opacity: 0 }}
                 animate={{
@@ -100,45 +101,24 @@ export function AppShell() {
             )}
           </AnimatePresence>
 
-          {/* Center: Graph Canvas */}
+          {/* Center: View-dependent content */}
           <div className="flex-1 relative min-w-0">
-            <GraphCanvas />
-            {chatDockOpen && <ChatDock />}
-
-            {/* Welcome overlay when empty */}
-            {!hasNodes && (
-              <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={animation.slow}
-                  className="text-center pointer-events-auto"
-                >
-                  <Image
-                    src="/rodeo.png"
-                    alt="Research Rodeo"
-                    width={80}
-                    height={80}
-                    className="mx-auto mb-4 object-contain opacity-90"
-                  />
-                  <h1 className="text-xl font-semibold text-[#1c1917] mb-2">
-                    Research Rodeo
-                  </h1>
-                  <p className="text-sm text-[#78716c] mb-6 max-w-md">
-                    Start with a research question and watch your knowledge graph grow
-                  </p>
-                  <Button onClick={toggleSearch} className="gap-2">
-                    <Search className="w-4 h-4" />
-                    Start Research
-                  </Button>
-                </motion.div>
-              </div>
+            {currentView === "graph" && (
+              <>
+                <GraphCanvas />
+                <UnifiedChatInput
+                  onSendMessage={handleChatSend}
+                  isLoading={false}
+                />
+              </>
             )}
+            {currentView === "list" && <ListView />}
+            {currentView === "chat" && <ChatView />}
           </div>
 
-          {/* Right: Reader / Chat / Export / Frontier */}
+          {/* Right: Reader / Export / Frontier / Timeline */}
           <AnimatePresence initial={false}>
-            {rightPanel && (
+            {rightPanel && currentView !== "chat" && (
               <motion.div
                 initial={{ width: 0, opacity: 0 }}
                 animate={{

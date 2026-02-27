@@ -28,7 +28,7 @@ export function StatusBar() {
 
       <div className="flex items-center gap-4">
         <ShortcutHint keys={["Cmd", "K"]} label="Search" />
-        <ShortcutHint keys={["Cmd", "/"]} label="Chat dock" />
+        <ShortcutHint keys={["Cmd", "/"]} label="Chat" />
         <ShortcutHint keys={["Cmd", "0"]} label="Fit view" />
         <ShortcutHint keys={["Esc"]} label="Close panel" />
       </div>
