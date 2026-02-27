@@ -26,6 +26,17 @@ import { MarkdownRenderer } from "./MarkdownRenderer";
 import type { ChatInputMode } from "@/store/ui-store";
 import type { PaperMetadata, PaperNode, Cluster, WeightConfig, AnnotationNode } from "@/types";
 
+// Local type for AI SDK tool invocation parts (runtime shape from useChat)
+interface ToolInvPart {
+  type: string;
+  toolInvocation: {
+    toolCallId: string;
+    toolName: string;
+    args?: Record<string, unknown>;
+    state: string;
+  };
+}
+
 type SearchType = "auto" | "instant" | "fast" | "deep";
 
 interface SearchResultItem {
@@ -152,15 +163,15 @@ export function UnifiedChatInput() {
   const clusters = useGraphStore((s) => s.clusters);
   const query = useGraphStore((s) => s.query);
   const weights = useGraphStore((s) => s.weights);
-  const annotations = useGraphStore((s) => s.annotations);
+  const annotationNodes = useGraphStore((s) => s.annotationNodes);
 
   const getProjectContext = useCallback(() => {
     const nodeArr: PaperNode[] = nodes instanceof Map ? Array.from(nodes.values()) : (nodes ?? []);
     const clusterArr: Cluster[] = clusters ?? [];
-    const annotArr: AnnotationNode[] = annotations instanceof Map
-      ? Array.from(annotations.values())
-      : Array.isArray(annotations)
-        ? annotations
+    const annotArr: AnnotationNode[] = annotationNodes instanceof Map
+      ? Array.from(annotationNodes.values())
+      : Array.isArray(annotationNodes)
+        ? annotationNodes
         : [];
     const w: WeightConfig = weights ?? {
       influence: 0.2, recency: 0.2, semanticSimilarity: 0.3, localCentrality: 0.2, velocity: 0.1,
@@ -170,7 +181,7 @@ export function UnifiedChatInput() {
       { rootQuery: query || "research exploration", weights: w, nodes: nodeArr, clusters: clusterArr, annotations: annotArr },
       ""
     );
-  }, [nodes, clusters, query, weights, annotations]);
+  }, [nodes, clusters, query, weights, annotationNodes]);
 
   const transport = useMemo(
     () => new DefaultChatTransport({ api: "/api/chat", body: { projectContext: getProjectContext() } }),
@@ -281,8 +292,8 @@ export function UnifiedChatInput() {
       if (msg.role !== "assistant") continue;
       for (const part of msg.parts) {
         if (part.type !== "tool-invocation") continue;
-        const inv = part.toolInvocation;
-        if (inv.state !== "result") continue;
+        const inv = (part as unknown as ToolInvPart).toolInvocation;
+        if (!inv || inv.state !== "result") continue;
         if (executedToolCalls.current.has(inv.toolCallId)) continue;
 
         if (CONFIRM_REQUIRED.has(inv.toolName)) {
@@ -616,7 +627,7 @@ export function UnifiedChatInput() {
                     <div className="max-w-[85%] space-y-1.5">
                       {tools.map((tool, ti) => {
                         const inv = "toolInvocation" in tool
-                          ? (tool as { toolInvocation: { toolCallId: string; toolName: string; args?: Record<string, unknown>; state: string } }).toolInvocation
+                          ? (tool as unknown as ToolInvPart).toolInvocation
                           : null;
                         const name = inv?.toolName || "unknown";
                         const active = inv ? inv.state !== "result" : false;

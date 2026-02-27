@@ -4,15 +4,36 @@ import { useRef, useEffect, useCallback, useState, useMemo } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import type { UIMessage } from "ai";
-import { Send, Sparkles, Loader2, Search, GitBranch } from "lucide-react";
+import {
+  Send,
+  Sparkles,
+  Loader2,
+  Search,
+  GitBranch,
+  Check,
+  AlertTriangle,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useGraphStore } from "@/store/graph-store";
+import { executeGraphCommand } from "@/lib/graph/commands";
+import { createAnnotation } from "@/lib/graph/annotations";
 import { assembleContext } from "@/lib/agents/context";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { CitationBadge } from "./CitationBadge";
 import { ThinkingIndicator } from "./ThinkingIndicator";
 import { SuggestedQuestions } from "./SuggestedQuestions";
-import type { PaperNode, Cluster, WeightConfig } from "@/types";
+import type { PaperMetadata, PaperNode, Cluster, WeightConfig, AnnotationNode } from "@/types";
+
+// Local type for AI SDK tool invocation parts (runtime shape from useChat)
+interface ToolInvPart {
+  type: string;
+  toolInvocation: {
+    toolCallId: string;
+    toolName: string;
+    args?: Record<string, unknown>;
+    state: string;
+  };
+}
 
 function getMessageText(msg: UIMessage): string {
   return msg.parts
@@ -50,7 +71,42 @@ const TOOL_LABELS: Record<string, string> = {
   draftLitReview: "Drafting literature review",
   getRecommendations: "Finding recommendations",
   analyzeClusters: "Analyzing clusters",
+  addInsightToNode: "Adding insight",
+  markAsKeyFinding: "Marking as key finding",
+  markAsDeadEnd: "Marking as dead end",
+  saveCardForLater: "Saving card",
+  exportBibTeX: "Exporting BibTeX",
 };
+
+// Tool sets for auto-execution
+const GRAPH_TOOLS = new Set([
+  "addGraphNode", "connectGraphNodes", "expandGraphNode",
+  "relayoutGraph", "archiveGraphNode", "mergeGraphClusters",
+  "addContradictionCard", "saveCardForLater",
+]);
+const ANNOTATION_TOOLS = new Set([
+  "addInsightToNode", "markAsKeyFinding", "markAsDeadEnd",
+]);
+const CONFIRM_REQUIRED = new Set(["archiveGraphNode"]);
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function getToolStatusLabel(toolName: string, args: any, executed: boolean): string {
+  if (!executed) return TOOL_LABELS[toolName] || `Running ${toolName}`;
+  switch (toolName) {
+    case "addGraphNode": return `Added "${args?.title ?? "source"}" to graph`;
+    case "expandGraphNode": return `Expanded node neighborhood`;
+    case "connectGraphNodes": return "Connected nodes";
+    case "addInsightToNode": return `Added insight`;
+    case "markAsKeyFinding": return "Marked as key finding";
+    case "markAsDeadEnd": return "Marked as dead end";
+    case "searchPapers": return `Searched for "${args?.query ?? ""}"`;
+    case "searchWithinHole": return `Searched graph for "${args?.query ?? ""}"`;
+    case "relayoutGraph": return "Recomputed layout";
+    case "archiveGraphNode": return "Archive requested";
+    case "mergeGraphClusters": return "Merged clusters";
+    default: return TOOL_LABELS[toolName] || `Completed ${toolName}`;
+  }
+}
 
 function normalizeForMatch(s: string): string {
   return s.toLowerCase().replace(/[^\w\s]/g, "").replace(/\s+/g, " ").trim();
@@ -150,8 +206,8 @@ function UserMessage({ text }: { text: string }) {
   );
 }
 
-function AssistantMessage({ message, nodes, isStreaming }: {
-  message: UIMessage; nodes: PaperNode[]; isStreaming: boolean;
+function AssistantMessage({ message, nodes, isStreaming, executedToolCalls }: {
+  message: UIMessage; nodes: PaperNode[]; isStreaming: boolean; executedToolCalls: Set<string>;
 }) {
   const text = getMessageText(message);
   const tools = getToolParts(message);
@@ -162,11 +218,28 @@ function AssistantMessage({ message, nodes, isStreaming }: {
       <div className="max-w-[85%] space-y-2">
         {tools.map((tool, i) => {
           const inv = "toolInvocation" in tool
-            ? (tool as { toolInvocation: { toolName: string; state: string } }).toolInvocation
+            ? (tool as unknown as ToolInvPart).toolInvocation
             : null;
           const name = inv?.toolName || "unknown";
           const active = inv ? inv.state !== "result" : false;
-          const label = TOOL_LABELS[name] || `Running ${name}`;
+          const isExecuted = inv ? executedToolCalls.has(inv.toolCallId) : false;
+          const isGraphOrAnnotation = GRAPH_TOOLS.has(name) || ANNOTATION_TOOLS.has(name);
+
+          // Show green success indicator for executed graph/annotation tools
+          if (!active && isExecuted && isGraphOrAnnotation) {
+            const label = getToolStatusLabel(name, inv?.args, true);
+            return (
+              <div key={`t-${i}`} className="flex items-center gap-1.5 text-xs text-[#22c55e] bg-[#dcfce7] rounded-md px-2 py-1">
+                <Check className="h-3 w-3" />
+                <span>{label}</span>
+              </div>
+            );
+          }
+
+          const label = active
+            ? (TOOL_LABELS[name] || `Running ${name}`) + "..."
+            : getToolStatusLabel(name, inv?.args, false);
+
           return (
             <div key={`t-${i}`} className="flex items-center gap-2 text-xs text-[#78716c] py-1">
               {active ? (
@@ -176,7 +249,7 @@ function AssistantMessage({ message, nodes, isStreaming }: {
               ) : (
                 <GitBranch className="h-3 w-3 text-[#78716c]" />
               )}
-              <span>{label}{active ? "..." : ""}</span>
+              <span>{label}</span>
             </div>
           );
         })}
@@ -203,19 +276,35 @@ export function ChatView() {
   const clusters = useGraphStore((s) => s.clusters);
   const query = useGraphStore((s) => s.query);
   const weights = useGraphStore((s) => s.weights);
+  const storeAnnotations = useGraphStore((s) => s.annotationNodes);
+
+  // --- Archive confirmation state ---
+  const [pendingArchive, setPendingArchive] = useState<{
+    toolCallId: string;
+    nodeId: string;
+    nodeTitle: string;
+  } | null>(null);
+
+  // --- Track executed tool calls to prevent double-execution ---
+  const executedToolCallsRef = useRef(new Set<string>());
 
   const getProjectContext = useCallback(() => {
     const nodeArr: PaperNode[] = nodes instanceof Map ? Array.from(nodes.values()) : (nodes ?? []);
     const clusterArr: Cluster[] = clusters ?? [];
+    const annotArr: AnnotationNode[] = storeAnnotations instanceof Map
+      ? Array.from(storeAnnotations.values())
+      : Array.isArray(storeAnnotations)
+        ? storeAnnotations
+        : [];
     const w: WeightConfig = weights ?? {
       influence: 0.2, recency: 0.2, semanticSimilarity: 0.3, localCentrality: 0.2, velocity: 0.1,
     };
     if (nodeArr.length === 0) return [];
     return assembleContext(
-      { rootQuery: query || "research exploration", weights: w, nodes: nodeArr, clusters: clusterArr },
+      { rootQuery: query || "research exploration", weights: w, nodes: nodeArr, clusters: clusterArr, annotations: annotArr },
       ""
     );
-  }, [nodes, clusters, query, weights]);
+  }, [nodes, clusters, query, weights, storeAnnotations]);
 
   const transport = useMemo(
     () => new DefaultChatTransport({ api: "/api/chat", body: { projectContext: getProjectContext() } }),
@@ -223,6 +312,136 @@ export function ChatView() {
   );
   const { messages, sendMessage, status } = useChat({ transport });
   const isLoading = status === "submitted" || status === "streaming";
+
+  // --- Tool auto-execution functions ---
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const executeToolAction = useCallback((toolName: string, args: any) => {
+    switch (toolName) {
+      case "addGraphNode": {
+        const authorsList = (args.authors ?? []).map((a: string | { name: string; id?: string }) =>
+          typeof a === "string" ? { id: "", name: a } : { id: a.id ?? "", name: a.name }
+        );
+        const paper: PaperMetadata = {
+          id: args.paperId || `chat-${Date.now()}`,
+          externalIds: args.externalIds ?? {},
+          title: args.title ?? "Untitled",
+          authors: authorsList,
+          year: args.year,
+          abstract: args.snippet,
+          venue: args.venue,
+          citationCount: args.citationCount ?? 0,
+          referenceCount: args.referenceCount ?? 0,
+          openAccessPdf: args.openAccessPdf,
+          url: args.url,
+        };
+        void executeGraphCommand({ type: "add-node", paper, materialize: false, source: "chat" });
+        break;
+      }
+      case "connectGraphNodes":
+        void executeGraphCommand({
+          type: "connect-nodes",
+          sourceId: args.sourceId,
+          targetId: args.targetId,
+          edgeType: args.edgeType,
+          evidence: args.reason,
+          source: "chat",
+        });
+        break;
+      case "expandGraphNode":
+        void executeGraphCommand({
+          type: "expand-node",
+          nodeId: args.nodeId,
+          mode: args.mode ?? "foundational",
+          budget: args.budget,
+          source: "chat",
+        });
+        break;
+      case "relayoutGraph":
+        void executeGraphCommand({ type: "relayout", source: "chat" });
+        break;
+      case "mergeGraphClusters":
+        void executeGraphCommand({
+          type: "merge-clusters",
+          clusterIdA: args.clusterIdA,
+          clusterIdB: args.clusterIdB,
+          source: "chat",
+        });
+        break;
+      case "addContradictionCard":
+        void executeGraphCommand({
+          type: "add-contradiction",
+          anchorNodeId: args.anchorNodeId,
+          title: args.title,
+          url: args.url,
+          snippet: args.snippet,
+          source: "chat",
+        });
+        break;
+      case "saveCardForLater":
+        void executeGraphCommand({
+          type: "save-for-later",
+          evidenceCardId: args.evidenceCardId,
+          source: "chat",
+        });
+        break;
+    }
+  }, []);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const executeAnnotationAction = useCallback((toolName: string, args: any) => {
+    const store = useGraphStore.getState();
+    switch (toolName) {
+      case "addInsightToNode": {
+        const annotation = createAnnotation("insight", args.content ?? "", args.nodeId);
+        store.addAnnotation(annotation);
+        break;
+      }
+      case "markAsKeyFinding": {
+        const annotation = createAnnotation("key-find", args.description ?? "Key finding", args.nodeId);
+        store.addAnnotation(annotation);
+        break;
+      }
+      case "markAsDeadEnd": {
+        const annotation = createAnnotation("dead-end", args.reason ?? "Dead end", args.nodeId);
+        store.addAnnotation(annotation);
+        break;
+      }
+    }
+  }, []);
+
+  // --- Auto-execute completed tool invocations ---
+  useEffect(() => {
+    for (const msg of messages) {
+      if (msg.role !== "assistant") continue;
+      for (const part of msg.parts) {
+        if (part.type !== "tool-invocation") continue;
+        const inv = (part as unknown as ToolInvPart).toolInvocation;
+        if (!inv || inv.state !== "result") continue;
+        if (executedToolCallsRef.current.has(inv.toolCallId)) continue;
+
+        if (CONFIRM_REQUIRED.has(inv.toolName)) {
+          if (!pendingArchive || pendingArchive.toolCallId !== inv.toolCallId) {
+            const nodeId = inv.args?.nodeId as string;
+            const node = useGraphStore.getState().nodes.get(nodeId);
+            setPendingArchive({
+              toolCallId: inv.toolCallId,
+              nodeId,
+              nodeTitle: node?.data.title ?? nodeId,
+            });
+          }
+          continue;
+        }
+
+        if (GRAPH_TOOLS.has(inv.toolName)) {
+          executedToolCallsRef.current.add(inv.toolCallId);
+          executeToolAction(inv.toolName, inv.args);
+        } else if (ANNOTATION_TOOLS.has(inv.toolName)) {
+          executedToolCallsRef.current.add(inv.toolCallId);
+          executeAnnotationAction(inv.toolName, inv.args);
+        }
+      }
+    }
+  }, [messages, executeToolAction, executeAnnotationAction, pendingArchive]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -246,10 +465,52 @@ export function ChatView() {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
   };
 
+  // --- Archive confirmation handlers ---
+  const handleConfirmArchive = useCallback(() => {
+    if (!pendingArchive) return;
+    executedToolCallsRef.current.add(pendingArchive.toolCallId);
+    void executeGraphCommand({
+      type: "archive-node",
+      nodeId: pendingArchive.nodeId,
+      source: "chat",
+    });
+    setPendingArchive(null);
+  }, [pendingArchive]);
+
+  const handleRejectArchive = useCallback(() => {
+    if (!pendingArchive) return;
+    executedToolCallsRef.current.add(pendingArchive.toolCallId);
+    setPendingArchive(null);
+  }, [pendingArchive]);
+
   const nodeArray: PaperNode[] = nodes instanceof Map ? Array.from(nodes.values()) : (nodes ?? []);
 
   return (
     <div className="flex flex-col h-full bg-[#f8f7f4]">
+      {/* Archive confirmation bar */}
+      {pendingArchive && (
+        <div className="flex items-center justify-between gap-3 px-6 py-2.5 bg-[#fef3c7] border-b border-[#fcd34d]/40">
+          <div className="flex items-center gap-2 text-sm text-[#92400e] min-w-0">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <span className="truncate">Archive &ldquo;{pendingArchive.nodeTitle}&rdquo;?</span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={handleConfirmArchive}
+              className="px-3 py-1 rounded-md text-xs font-medium bg-[#ef4444] text-white hover:bg-[#dc2626] transition-colors"
+            >
+              Yes, archive
+            </button>
+            <button
+              onClick={handleRejectArchive}
+              className="px-3 py-1 rounded-md text-xs font-medium bg-white text-[#57534e] border border-[#e8e7e2] hover:bg-[#f3f2ee] transition-colors"
+            >
+              No
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-6 py-6 space-y-5">
         {messages.length === 0 ? (
@@ -271,13 +532,22 @@ export function ChatView() {
               const isLast = idx === messages.length - 1;
               if (msg.role === "user") {
                 const t = getMessageText(msg);
-                return t ? <UserMessage key={msg.id} text={t} /> : null;
+                return t ? (
+                  <div key={msg.id}>
+                    {idx > 0 && <div className="border-t border-[#e8e7e2]/50 mb-5" />}
+                    <UserMessage text={t} />
+                  </div>
+                ) : null;
               }
               return (
-                <AssistantMessage
-                  key={msg.id} message={msg} nodes={nodeArray}
-                  isStreaming={isLast && isLoading && msg.role === "assistant"}
-                />
+                <div key={msg.id}>
+                  {idx > 0 && <div className="border-t border-[#e8e7e2]/50 mb-5" />}
+                  <AssistantMessage
+                    message={msg} nodes={nodeArray}
+                    isStreaming={isLast && isLoading && msg.role === "assistant"}
+                    executedToolCalls={executedToolCallsRef.current}
+                  />
+                </div>
               );
             })}
             {isLoading && messages.length > 0 && messages[messages.length - 1]?.role === "user" && (
