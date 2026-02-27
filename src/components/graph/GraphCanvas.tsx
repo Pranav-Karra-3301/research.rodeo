@@ -29,7 +29,6 @@ import { useGraphStore } from "@/store/graph-store";
 import { useUIStore } from "@/store/ui-store";
 import { useHistoryStore } from "@/store/history-store";
 import { useEgoNavigation } from "@/hooks/useEgoNavigation";
-import { useSemanticZoom } from "@/hooks/useSemanticZoom";
 import {
   persistAddNodes,
   persistAddEdges,
@@ -97,10 +96,9 @@ export function GraphCanvas() {
   const clearSelection = useGraphStore((s) => s.clearSelection);
   const setRightPanel = useUIStore((s) => s.setRightPanel);
   const toggleSearch = useUIStore((s) => s.toggleSearch);
-  const toggleChatDock = useUIStore((s) => s.toggleChatDock);
+  const setCurrentView = useUIStore((s) => s.setCurrentView);
   const openAddSource = useUIStore((s) => s.openAddSource);
   const { navigateToNode } = useEgoNavigation();
-  const { zoomLevel } = useSemanticZoom();
 
   const [nodes, setNodes, onNC] = useNodesState(rfNodes);
   const [edges, setEdges, onEC] = useEdgesState(rfEdges);
@@ -237,7 +235,10 @@ export function GraphCanvas() {
   // Wire up keyboard shortcuts
   useKeyboard({
     onToggleSearch: toggleSearch,
-    onToggleChat: toggleChatDock,
+    onToggleChat: useCallback(() => {
+      const view = useUIStore.getState().currentView;
+      useUIStore.getState().setCurrentView(view === "chat" ? "graph" : "chat");
+    }, []),
     onToggleExport: useCallback(() => {
       useUIStore.getState().toggleRightPanel("export");
     }, []),
@@ -291,11 +292,6 @@ export function GraphCanvas() {
         )}
         <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="#b3b0a6" />
       </ReactFlow>
-
-      {/* Zoom level indicator */}
-      <div className="absolute top-3 right-3 px-2 py-1 text-[10px] text-[#78716c] bg-white/80 rounded border border-[#e8e7e2]">
-        {zoomLevel}
-      </div>
 
       {ctxMenu?.type === "node" && ctxMenu.nodeId && (
         <GraphContextMenu
