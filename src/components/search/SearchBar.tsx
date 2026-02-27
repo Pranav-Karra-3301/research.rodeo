@@ -16,7 +16,7 @@ import { SearchResults } from "./SearchResults";
 import { LocalSearchResults } from "./LocalSearchResults";
 import type { PaperMetadata } from "@/types";
 
-type SearchMode = "auto" | "instant" | "deep";
+type SearchMode = "auto" | "instant" | "fast" | "deep";
 
 const DOMAIN_OPTIONS = [
   { label: "arxiv.org", value: "arxiv.org" },
@@ -28,6 +28,7 @@ const DOMAIN_OPTIONS = [
 const MODE_OPTIONS: { value: SearchMode; label: string }[] = [
   { value: "auto", label: "Auto" },
   { value: "instant", label: "Instant" },
+  { value: "fast", label: "Fast" },
   { value: "deep", label: "Deep" },
 ];
 
