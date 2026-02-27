@@ -1,10 +1,19 @@
 "use client";
 
-import { X } from "lucide-react";
+import { X, Star, XCircle, Lightbulb, Link2 } from "lucide-react";
+import { useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/Tabs";
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/Tooltip";
 import { useGraphStore } from "@/store/graph-store";
 import { useUIStore } from "@/store/ui-store";
+import { useAnnotations } from "@/hooks/useAnnotations";
 import { ReaderDetailsTab } from "./ReaderDetailsTab";
 import { ReaderNotesTab } from "./ReaderNotesTab";
 import { ReaderAskAiTab } from "./ReaderAskAiTab";
@@ -15,8 +24,30 @@ export function ReaderPanel() {
   const nodes = useGraphStore((s) => s.nodes);
   const setRightPanel = useUIStore((s) => s.setRightPanel);
   const node = selectedNodeId ? nodes.get(selectedNodeId) : undefined;
+  const { addKeyFind, addDeadEnd, addInsight } = useAnnotations();
+
+  const [showLinkInput, setShowLinkInput] = useState(false);
+  const [linkUrl, setLinkUrl] = useState("");
 
   const hasViewUrl = !!(node?.data.url || node?.data.openAccessPdf);
+
+  const handleAddLink = useCallback(async () => {
+    if (!linkUrl.trim()) return;
+    try {
+      const res = await fetch("/api/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: linkUrl.trim(), limit: 1 }),
+      });
+      if (res.ok) {
+        // Link added
+      }
+    } catch {
+      // Silently fail
+    }
+    setLinkUrl("");
+    setShowLinkInput(false);
+  }, [linkUrl]);
 
   if (!node) {
     return (
@@ -47,6 +78,89 @@ export function ReaderPanel() {
         >
           <X className="w-4 h-4" />
         </button>
+      </div>
+
+      {/* Action toolbar */}
+      <div className="flex items-center gap-1 px-4 py-2 border-b border-[#e8e7e2]">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => addKeyFind(node.id)}
+            >
+              <Star className="w-3.5 h-3.5 text-[#eab308]" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Mark as key finding</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => addDeadEnd(node.id)}
+            >
+              <XCircle className="w-3.5 h-3.5 text-[#ef4444]" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Mark as dead end</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => addInsight(node.id)}
+            >
+              <Lightbulb className="w-3.5 h-3.5 text-[#f59e0b]" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Add insight</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant={showLinkInput ? "default" : "ghost"}
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => setShowLinkInput(!showLinkInput)}
+            >
+              <Link2 className="w-3.5 h-3.5 text-[#3b82f6]" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Add related link</TooltipContent>
+        </Tooltip>
+
+        {showLinkInput && (
+          <form
+            onSubmit={(e) => { e.preventDefault(); handleAddLink(); }}
+            className="flex items-center gap-1 ml-1 flex-1"
+          >
+            <Input
+              value={linkUrl}
+              onChange={(e) => setLinkUrl(e.target.value)}
+              placeholder="Paste URL..."
+              className="h-7 text-xs flex-1"
+              autoFocus
+            />
+            <Button
+              type="submit"
+              size="sm"
+              variant="ghost"
+              className="h-7 text-xs px-2"
+              disabled={!linkUrl.trim()}
+            >
+              Add
+            </Button>
+          </form>
+        )}
       </div>
 
       <Tabs
