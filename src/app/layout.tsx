@@ -3,6 +3,7 @@ import { Inter, JetBrains_Mono, Source_Serif_4 } from "next/font/google";
 import "@xyflow/react/dist/style.css";
 import "./globals.css";
 import { SpacetimeDBProvider } from "@/components/providers/SpacetimeDBProvider";
+import { AuthProvider } from "@/components/providers/AuthProvider";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -63,7 +64,9 @@ export default function RootLayout({
       <body
         className={`${inter.variable} ${jetbrains.variable} ${sourceSerif.variable} font-sans antialiased`}
       >
-        <SpacetimeDBProvider>{children}</SpacetimeDBProvider>
+        <AuthProvider>
+          <SpacetimeDBProvider>{children}</SpacetimeDBProvider>
+        </AuthProvider>
       </body>
     </html>
   );

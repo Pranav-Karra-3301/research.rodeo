@@ -358,6 +358,7 @@ export function SpacetimeDBProvider({ children }: { children: React.ReactNode })
                 id: row.id,
                 name: row.name,
                 rootQuery: row.rootQuery ?? undefined,
+                visibility: "private",
                 createdAt: Number(row.createdAt),
                 updatedAt: Number(row.updatedAt),
               };
@@ -373,6 +374,7 @@ export function SpacetimeDBProvider({ children }: { children: React.ReactNode })
                 id: row.id,
                 name: row.name,
                 rootQuery: row.rootQuery ?? undefined,
+                visibility: "private",
                 createdAt: Number(row.createdAt),
                 updatedAt: Number(row.updatedAt),
               });
@@ -393,6 +395,7 @@ export function SpacetimeDBProvider({ children }: { children: React.ReactNode })
                     id: row.id,
                     name: row.name,
                     rootQuery: row.rootQuery ?? undefined,
+                    visibility: "private",
                     createdAt: Number(row.createdAt),
                     updatedAt: Number(row.updatedAt),
                   });

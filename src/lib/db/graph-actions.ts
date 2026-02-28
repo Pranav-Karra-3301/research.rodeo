@@ -152,6 +152,7 @@ function ensureHoleForNodeWrites(): string {
     id,
     name: "Untitled Rabbit Hole",
     rootQuery: undefined,
+    visibility: "private",
     createdAt: now,
     updatedAt: now,
   };

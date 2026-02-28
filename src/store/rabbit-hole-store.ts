@@ -4,10 +4,14 @@ import { create } from "zustand";
 import { nanoid } from "nanoid";
 import type { DbConnection } from "@/lib/spacetimedb";
 
+export type RabbitHoleVisibility = "private" | "public";
+
 export interface RabbitHole {
   id: string;
   name: string;
   rootQuery?: string;
+  ownerId?: string;       // Auth0 user sub
+  visibility: RabbitHoleVisibility;
   createdAt: number; // ms
   updatedAt: number; // ms
 }

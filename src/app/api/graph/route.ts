@@ -2,9 +2,15 @@ import { NextResponse } from "next/server";
 import { getGraphObject, putGraphObject, isR2Configured } from "@/lib/r2";
 import { parseGraphSnapshot } from "@/lib/graph/snapshot";
 import type { GraphSnapshot } from "@/lib/graph/snapshot";
+import { getUserId } from "@/lib/auth/helpers";
 
 /** GET /api/graph?rabbitHoleId=<id> — Load a graph snapshot from R2. */
 export async function GET(req: Request) {
+  const userId = await getUserId();
+  if (!userId) {
+    return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+  }
+
   const { searchParams } = new URL(req.url);
   const rabbitHoleId = searchParams.get("rabbitHoleId");
 
@@ -20,7 +26,7 @@ export async function GET(req: Request) {
   }
 
   try {
-    const json = await getGraphObject(rabbitHoleId);
+    const json = await getGraphObject(userId, rabbitHoleId);
     if (!json) {
       return NextResponse.json({ graph: null, r2Available: true }, { status: 200 });
     }
@@ -52,6 +58,11 @@ export async function GET(req: Request) {
 
 /** POST /api/graph — Save a graph snapshot to R2. */
 export async function POST(req: Request) {
+  const userId = await getUserId();
+  if (!userId) {
+    return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+  }
+
   let body: { rabbitHoleId?: string; graph?: GraphSnapshot };
   try {
     body = await req.json();
@@ -94,7 +105,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    await putGraphObject(rabbitHoleId, JSON.stringify(snapshot));
+    await putGraphObject(userId, rabbitHoleId, JSON.stringify(snapshot));
     return NextResponse.json({ status: "ok", updatedAt: snapshot.updatedAt }, { status: 200 });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

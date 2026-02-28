@@ -1,6 +1,8 @@
 /**
  * Cloudflare R2 helpers (server-side only – never import from client components).
  * R2 is S3-compatible, so we use @aws-sdk/client-s3 with a custom endpoint.
+ *
+ * All graph objects are scoped by user ID: `users/{userId}/graphs/{rabbitHoleId}.json`
  */
 
 import {
@@ -38,16 +40,36 @@ function getClient(): S3Client {
   });
 }
 
-function graphKey(rabbitHoleId: string): string {
+/** Sanitize user ID for use in R2 keys. */
+function sanitizeUserId(userId: string): string {
+  return userId.replace(/\|/g, "_");
+}
+
+function graphKey(userId: string, rabbitHoleId: string): string {
+  return `users/${sanitizeUserId(userId)}/graphs/${rabbitHoleId}.json`;
+}
+
+/** Legacy key (pre-auth migration). */
+function legacyGraphKey(rabbitHoleId: string): string {
   return `graphs/${rabbitHoleId}.json`;
 }
 
 /** Fetch the stored graph JSON for a rabbit hole. Returns null if it doesn't exist. */
-export async function getGraphObject(rabbitHoleId: string): Promise<string | null> {
+export async function getGraphObject(userId: string, rabbitHoleId: string): Promise<string | null> {
   const client = getClient();
+
+  // Try user-scoped path first
+  const result = await fetchObject(client, graphKey(userId, rabbitHoleId));
+  if (result !== null) return result;
+
+  // Fallback to legacy path (pre-auth migration)
+  return fetchObject(client, legacyGraphKey(rabbitHoleId));
+}
+
+async function fetchObject(client: S3Client, key: string): Promise<string | null> {
   try {
     const response = await client.send(
-      new GetObjectCommand({ Bucket: BUCKET!, Key: graphKey(rabbitHoleId) })
+      new GetObjectCommand({ Bucket: BUCKET!, Key: key })
     );
     if (!response.Body) return null;
     return await response.Body.transformToString("utf-8");
@@ -60,12 +82,12 @@ export async function getGraphObject(rabbitHoleId: string): Promise<string | nul
 }
 
 /** Write the graph JSON for a rabbit hole. Overwrites any existing snapshot. */
-export async function putGraphObject(rabbitHoleId: string, json: string): Promise<void> {
+export async function putGraphObject(userId: string, rabbitHoleId: string, json: string): Promise<void> {
   const client = getClient();
   await client.send(
     new PutObjectCommand({
       Bucket: BUCKET!,
-      Key: graphKey(rabbitHoleId),
+      Key: graphKey(userId, rabbitHoleId),
       Body: json,
       ContentType: "application/json",
     })
@@ -73,27 +95,31 @@ export async function putGraphObject(rabbitHoleId: string, json: string): Promis
 }
 
 /** Delete the stored graph for a rabbit hole. No-op if it doesn't exist. */
-export async function deleteGraphObject(rabbitHoleId: string): Promise<void> {
+export async function deleteGraphObject(userId: string, rabbitHoleId: string): Promise<void> {
   const client = getClient();
-  try {
-    await client.send(
-      new DeleteObjectCommand({ Bucket: BUCKET!, Key: graphKey(rabbitHoleId) })
-    );
-  } catch (err) {
-    const status = (err as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode;
-    if (status === 404) return;
-    throw err;
+  // Delete both new and legacy paths
+  for (const key of [graphKey(userId, rabbitHoleId), legacyGraphKey(rabbitHoleId)]) {
+    try {
+      await client.send(
+        new DeleteObjectCommand({ Bucket: BUCKET!, Key: key })
+      );
+    } catch (err) {
+      const status = (err as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode;
+      if (status === 404) continue;
+      throw err;
+    }
   }
 }
 
-/** List all stored graph rabbit hole IDs. */
-export async function listGraphObjects(): Promise<string[]> {
+/** List all stored graph rabbit hole IDs for a user. */
+export async function listGraphObjects(userId: string): Promise<string[]> {
   const client = getClient();
+  const prefix = `users/${sanitizeUserId(userId)}/graphs/`;
   const response = await client.send(
-    new ListObjectsV2Command({ Bucket: BUCKET!, Prefix: "graphs/" })
+    new ListObjectsV2Command({ Bucket: BUCKET!, Prefix: prefix })
   );
   return (response.Contents ?? [])
     .map((obj) => obj.Key ?? "")
     .filter((key) => key.endsWith(".json"))
-    .map((key) => key.replace(/^graphs\//, "").replace(/\.json$/, ""));
+    .map((key) => key.replace(prefix, "").replace(/\.json$/, ""));
 }

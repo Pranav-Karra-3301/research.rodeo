@@ -22,6 +22,7 @@ import type { CurrentView } from "@/store/ui-store";
 import { graphStoreToSnapshot } from "@/lib/graph/snapshot";
 import { cn } from "@/lib/utils";
 import { layout } from "@/lib/design-tokens";
+import { UserMenu } from "@/components/auth/UserMenu";
 
 const VIEW_OPTIONS: { value: CurrentView; label: string }[] = [
   { value: "graph", label: "Graph" },
@@ -267,6 +268,11 @@ export function TopBar() {
           </TooltipTrigger>
           <TooltipContent>Export (Cmd+E)</TooltipContent>
         </Tooltip>
+
+        {/* User Menu */}
+        <div className="ml-1 pl-1 border-l border-[#e8e7e2]">
+          <UserMenu />
+        </div>
       </div>
     </header>
   );

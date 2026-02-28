@@ -1,15 +1,15 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
-import { Plus, Search, ChevronDown, Trash2, Edit2, Check, X } from "lucide-react";
+import { useState, useMemo, useCallback, useEffect } from "react";
+import { Plus, Search, ChevronDown, Trash2, Edit2, Check, X, Lock, Globe } from "lucide-react";
 import { RabbitIcon } from "@/components/rabbit-holes/RabbitIcon";
 import { motion, AnimatePresence } from "framer-motion";
 import { nanoid } from "nanoid";
 import { Input } from "@/components/ui/Input";
-import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
-import { useRabbitHoleStore, type RabbitHole } from "@/store/rabbit-hole-store";
+import { useRabbitHoleStore, type RabbitHole, type RabbitHoleVisibility } from "@/store/rabbit-hole-store";
 import { animation } from "@/lib/design-tokens";
+import { useUser } from "@auth0/nextjs-auth0/client";
 
 function formatRelativeTime(ms: number): string {
   const diff = Date.now() - ms;
@@ -23,17 +23,60 @@ function formatRelativeTime(ms: number): string {
   return new Date(ms).toLocaleDateString();
 }
 
+/** Claim a rabbit hole for the current user. */
+async function claimHoleForUser(rabbitHoleId: string, visibility: RabbitHoleVisibility = "private") {
+  try {
+    await fetch("/api/user/rabbit-holes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rabbitHoleId, visibility }),
+    });
+  } catch (err) {
+    console.warn("[RabbitHoleBrowser] Failed to claim hole:", err);
+  }
+}
+
+/** Toggle visibility of a rabbit hole. */
+async function toggleVisibility(rabbitHoleId: string, newVisibility: RabbitHoleVisibility) {
+  try {
+    await fetch("/api/user/rabbit-holes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rabbitHoleId, visibility: newVisibility, action: "set-visibility" }),
+    });
+  } catch (err) {
+    console.warn("[RabbitHoleBrowser] Failed to update visibility:", err);
+  }
+}
+
 export function RabbitHoleBrowser() {
   const rabbitHoles = useRabbitHoleStore((s) => s.rabbitHoles);
   const currentRabbitHoleId = useRabbitHoleStore((s) => s.currentRabbitHoleId);
   const setCurrentRabbitHoleId = useRabbitHoleStore((s) => s.setCurrentRabbitHoleId);
   const dbConnection = useRabbitHoleStore((s) => s.dbConnection);
   const isDbConnected = useRabbitHoleStore((s) => s.isDbConnected);
+  const { user } = useUser();
 
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
+  const [ownedHoleIds, setOwnedHoleIds] = useState<Map<string, RabbitHoleVisibility>>(new Map());
+
+  // Fetch user's owned rabbit holes on mount
+  useEffect(() => {
+    if (!user) return;
+    fetch("/api/user/rabbit-holes")
+      .then((res) => res.json())
+      .then((data: { rabbitHoles?: Array<{ rabbitHoleId: string; visibility: RabbitHoleVisibility }> }) => {
+        const map = new Map<string, RabbitHoleVisibility>();
+        for (const rh of data.rabbitHoles ?? []) {
+          map.set(rh.rabbitHoleId, rh.visibility);
+        }
+        setOwnedHoleIds(map);
+      })
+      .catch(() => {});
+  }, [user]);
 
   const currentHole = useMemo(
     () => rabbitHoles.find((h) => h.id === currentRabbitHoleId),
@@ -62,6 +105,9 @@ export function RabbitHoleBrowser() {
     dbConnection.reducers.createRabbitHole({ id, name, rootQuery: undefined });
     setCurrentRabbitHoleId(id);
     setIsOpen(false);
+    // Claim ownership
+    void claimHoleForUser(id, "private");
+    setOwnedHoleIds((prev) => new Map(prev).set(id, "private"));
   }, [dbConnection, rabbitHoles.length, setCurrentRabbitHoleId]);
 
   const handleOpen = useCallback(
@@ -77,8 +123,30 @@ export function RabbitHoleBrowser() {
       e.stopPropagation();
       if (!dbConnection) return;
       dbConnection.reducers.deleteRabbitHole({ rabbitHoleId: id });
+      // Unclaim ownership
+      void fetch("/api/user/rabbit-holes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rabbitHoleId: id, action: "unclaim" }),
+      }).catch(() => {});
+      setOwnedHoleIds((prev) => {
+        const next = new Map(prev);
+        next.delete(id);
+        return next;
+      });
     },
     [dbConnection]
+  );
+
+  const handleToggleVisibility = useCallback(
+    (e: React.MouseEvent, hole: RabbitHole) => {
+      e.stopPropagation();
+      const current = ownedHoleIds.get(hole.id) ?? "private";
+      const next: RabbitHoleVisibility = current === "private" ? "public" : "private";
+      void toggleVisibility(hole.id, next);
+      setOwnedHoleIds((prev) => new Map(prev).set(hole.id, next));
+    },
+    [ownedHoleIds]
   );
 
   const startEdit = useCallback((e: React.MouseEvent, hole: RabbitHole) => {
@@ -121,8 +189,13 @@ export function RabbitHoleBrowser() {
         className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-[#f3f2ee]/60 transition-colors"
       >
         <RabbitIcon className="w-5 h-5 text-[#7c3aed]" />
-        <span className="flex-1 text-left text-[12px] font-medium text-[#1c1917] truncate">
+        <span className="flex-1 text-left text-[12px] font-medium text-[#1c1917] truncate flex items-center gap-1">
           {currentHole?.name ?? (rabbitHoles.length === 0 ? "Start a Rabbit Hole" : "Select Rabbit Hole")}
+          {currentHole && (
+            ownedHoleIds.get(currentHole.id) === "public"
+              ? <Globe className="w-3 h-3 text-[#a8a29e] shrink-0" />
+              : <Lock className="w-3 h-3 text-[#a8a29e] shrink-0" />
+          )}
         </span>
         <motion.div animate={{ rotate: isOpen ? 180 : 0 }} transition={animation.fast}>
           <ChevronDown className="w-3.5 h-3.5 text-[#78716c]" />
@@ -208,6 +281,17 @@ export function RabbitHoleBrowser() {
                           <span className="text-[10px] text-[#a8a29e] shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                             {formatRelativeTime(hole.createdAt)}
                           </span>
+                          <button
+                            onClick={(e) => handleToggleVisibility(e, hole)}
+                            className="p-0.5 text-[#a8a29e] hover:text-[#44403c] opacity-0 group-hover:opacity-100 transition-opacity"
+                            title={ownedHoleIds.get(hole.id) === "public" ? "Public — click to make private" : "Private — click to make public"}
+                          >
+                            {ownedHoleIds.get(hole.id) === "public" ? (
+                              <Globe className="w-3 h-3" />
+                            ) : (
+                              <Lock className="w-3 h-3" />
+                            )}
+                          </button>
                           <button
                             onClick={(e) => startEdit(e, hole)}
                             className="p-0.5 text-[#a8a29e] hover:text-[#44403c] opacity-0 group-hover:opacity-100 transition-opacity"

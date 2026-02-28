@@ -13,6 +13,7 @@
     "@ai-sdk/anthropic": "^3.0.47",
     "@ai-sdk/openai": "^3.0.33",
     "@ai-sdk/react": "^3.0.102",
+    "@auth0/nextjs-auth0": "^4.15.0",
     "@aws-sdk/client-s3": "^3.1000.0",
     "@dagrejs/dagre": "^2.0.4",
     "@radix-ui/react-context-menu": "^2.2.16",
