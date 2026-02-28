@@ -2,10 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { scrapeMetadata } from "@/lib/server/scrape";
 import type { ScrapeMetadata } from "@/lib/server/scrape";
 import { isPrivateUrl } from "@/lib/server/url-validation";
+import { getUserId } from "@/lib/auth/helpers";
 
 export type ScrapeResult = ScrapeMetadata;
 
 export async function GET(req: NextRequest) {
+  const userId = await getUserId();
+  if (!userId) {
+    return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+  }
+
   const rawUrl = req.nextUrl.searchParams.get("url");
   if (!rawUrl) {
     return NextResponse.json({ error: "Missing url param" }, { status: 400 });

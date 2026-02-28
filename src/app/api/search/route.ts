@@ -3,6 +3,7 @@ import type { SearchQuery, SearchResult, ApiResponse } from "@/types";
 import { searchPapers as exaSearch, deepSearch } from "@/lib/api/exa";
 import { searchPapers as s2Search } from "@/lib/api/semantic-scholar";
 import { resolvePaper } from "@/lib/api/paper-resolver";
+import { getUserId } from "@/lib/auth/helpers";
 
 /**
  * Search modes map to Exa API search types:
@@ -22,6 +23,11 @@ interface SearchRequestBody extends SearchQuery {
 }
 
 export async function POST(req: NextRequest) {
+  const userId = await getUserId();
+  if (!userId) {
+    return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+  }
+
   try {
     const body = (await req.json()) as SearchRequestBody;
 

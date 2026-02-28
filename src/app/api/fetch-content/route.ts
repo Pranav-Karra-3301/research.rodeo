@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchUrlContent } from "@/lib/server/scrape";
 import { isPrivateUrl } from "@/lib/server/url-validation";
+import { getUserId } from "@/lib/auth/helpers";
 
 const MAX_CHARS = 15_000;
 
@@ -98,6 +99,11 @@ async function fetchViaDirectHtml(targetUrl: string): Promise<string | null> {
 // ---------------------------------------------------------------------------
 
 export async function GET(req: NextRequest) {
+  const userId = await getUserId();
+  if (!userId) {
+    return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+  }
+
   const rawUrl = req.nextUrl.searchParams.get("url");
   if (!rawUrl) {
     return NextResponse.json({ error: "Missing url param" }, { status: 400 });

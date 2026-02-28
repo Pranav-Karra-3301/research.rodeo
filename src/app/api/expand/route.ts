@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getUserId } from "@/lib/auth/helpers";
 import type {
   FrontierRequest,
   FrontierResult,
@@ -53,6 +54,11 @@ function expansionFallbackQuery(
 }
 
 export async function POST(req: NextRequest) {
+  const userId = await getUserId();
+  if (!userId) {
+    return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+  }
+
   try {
     const body = (await req.json()) as FrontierRequest & {
       sourceUrl?: string;

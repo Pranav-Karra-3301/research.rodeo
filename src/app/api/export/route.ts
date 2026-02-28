@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
 import { generateBibTeX, generateRIS, generateMarkdownReview } from "@/lib/utils/export";
+import { getUserId } from "@/lib/auth/helpers";
 import type { PaperMetadata, Cluster } from "@/types";
 
 export async function POST(req: Request) {
+  const userId = await getUserId();
+  if (!userId) {
+    return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+  }
+
   try {
     const body = await req.json();
     const {

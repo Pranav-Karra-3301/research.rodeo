@@ -14,6 +14,7 @@ import {
   getPaperReferences,
 } from "@/lib/api/semantic-scholar";
 import { canonicalIdToS2Query } from "@/lib/api/paper-resolver";
+import { getUserId } from "@/lib/auth/helpers";
 
 const APP_BASE_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 const CHAT_MODEL_ID = process.env.CHAT_MODEL ?? "claude-sonnet-4-6";
@@ -40,6 +41,11 @@ function buildSystemPrompt(projectContext?: string[]): string {
 }
 
 export async function POST(req: Request) {
+  const userId = await getUserId();
+  if (!userId) {
+    return new Response(JSON.stringify({ error: "Authentication required" }), { status: 401, headers: { "Content-Type": "application/json" } });
+  }
+
   const body = await req.json();
   const { messages: rawMessages, projectContext } = body;
   const uiMessages: UIMessage[] = Array.isArray(rawMessages) ? rawMessages : [];

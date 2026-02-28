@@ -2,8 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { nanoid } from "nanoid";
 import { scrapeMetadata, fetchUrlContent } from "@/lib/server/scrape";
 import { isPrivateUrl } from "@/lib/server/url-validation";
+import { getUserId } from "@/lib/auth/helpers";
 
 export async function POST(req: NextRequest) {
+  const userId = await getUserId();
+  if (!userId) {
+    return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+  }
+
   try {
     const body = await req.json();
     const { url, rabbit_hole_id } = body as { url: string; rabbit_hole_id: string };

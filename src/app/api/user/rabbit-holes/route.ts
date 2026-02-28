@@ -31,16 +31,24 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Authentication required" }, { status: 401 });
   }
 
-  let body: { rabbitHoleId?: string; visibility?: RabbitHoleVisibility; action?: string };
+  const VALID_VISIBILITIES: RabbitHoleVisibility[] = ["private", "public"];
+
+  let body: { rabbitHoleId?: string; visibility?: string; action?: string };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { rabbitHoleId, visibility, action } = body;
-  if (!rabbitHoleId) {
+  const { rabbitHoleId, action } = body;
+  const visibility = body.visibility as RabbitHoleVisibility | undefined;
+
+  if (!rabbitHoleId || typeof rabbitHoleId !== "string") {
     return NextResponse.json({ error: "rabbitHoleId is required" }, { status: 400 });
+  }
+
+  if (visibility && !VALID_VISIBILITIES.includes(visibility)) {
+    return NextResponse.json({ error: "visibility must be 'private' or 'public'" }, { status: 400 });
   }
 
   try {
@@ -49,14 +57,18 @@ export async function POST(req: Request) {
       return NextResponse.json({ status: "ok", action: "unclaimed" });
     }
 
-    if (action === "set-visibility" && visibility) {
+    if (action === "set-visibility") {
+      if (!visibility) {
+        return NextResponse.json({ error: "visibility is required for set-visibility" }, { status: 400 });
+      }
       await setRabbitHoleVisibility(userId, rabbitHoleId, visibility);
       return NextResponse.json({ status: "ok", visibility });
     }
 
     // Default: claim
-    await claimRabbitHole(userId, rabbitHoleId, visibility ?? "private");
-    return NextResponse.json({ status: "ok", action: "claimed", visibility: visibility ?? "private" });
+    const v = visibility ?? "private";
+    await claimRabbitHole(userId, rabbitHoleId, v);
+    return NextResponse.json({ status: "ok", action: "claimed", visibility: v });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: message }, { status: 500 });
