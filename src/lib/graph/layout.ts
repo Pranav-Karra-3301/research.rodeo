@@ -10,8 +10,8 @@ import {
   type SimulationLinkDatum,
 } from "d3-force";
 import dagre from "@dagrejs/dagre";
-import type { PaperNode, GraphEdge, Cluster } from "@/types";
-import { getNodeDimensions } from "@/lib/visual/importance-size";
+import type { PaperNode, GraphEdge, Cluster, AnnotationNode } from "@/types";
+import { getNodeDimensions, getAnnotationNodeDimensions } from "@/lib/visual/importance-size";
 
 interface LayoutNode extends SimulationNodeDatum {
   id: string;
@@ -80,13 +80,14 @@ function compactGridPositions(
 
 /**
  * Compute a full force-directed layout for the given nodes and edges.
- * Returns a Map of nodeId -> { x, y } positions.
+ * Returns a Map of nodeId -> { x, y } positions (includes annotation nodes when provided).
  */
 export function computeLayout(
   nodes: Map<string, PaperNode> | PaperNode[],
   edges: GraphEdge[],
   clusters?: Cluster[],
-  options?: LayoutOptions
+  options?: LayoutOptions,
+  annotationNodes?: Map<string, AnnotationNode> | AnnotationNode[]
 ): Map<string, { x: number; y: number }> {
   const opts = { ...DEFAULTS, ...options };
   const nodeArray =
@@ -122,6 +123,31 @@ export function computeLayout(
     nodeSizeMap.set(n.id, Math.max(dims.width, dims.height) / 2);
   }
 
+  // --- Include annotation nodes in the simulation ---
+  const annotationArray = annotationNodes
+    ? annotationNodes instanceof Map
+      ? Array.from(annotationNodes.values())
+      : annotationNodes
+    : [];
+
+  for (const a of annotationArray) {
+    const dims = getAnnotationNodeDimensions(a.type);
+    layoutNodes.push({
+      id: a.id,
+      x: a.position.x !== 0 || a.position.y !== 0
+        ? a.position.x
+        : (Math.random() - 0.5) * opts.width,
+      y: a.position.x !== 0 || a.position.y !== 0
+        ? a.position.y
+        : (Math.random() - 0.5) * opts.height,
+    });
+    nodeSizeMap.set(a.id, Math.max(dims.width, dims.height) / 2);
+    // Weak link from annotation to its anchor paper so they stay nearby
+    if (a.attachedToNodeId && nodeSet.has(a.attachedToNodeId)) {
+      layoutLinks.push({ source: a.id, target: a.attachedToNodeId, weight: 0.15 });
+    }
+  }
+
   // No topology information: use deterministic compact placement instead of
   // random force spread so new graphs look organized.
   if (layoutLinks.length === 0) {
@@ -137,7 +163,11 @@ export function computeLayout(
       forceLink<LayoutNode, LayoutLink>(layoutLinks)
         .id((d) => d.id)
         .distance(opts.linkDistance)
-        .strength((link) => link.weight * 0.5)
+        .strength((link) => {
+          const w = (link as LayoutLink).weight;
+          // Annotation links are weaker so they only loosely couple to anchor
+          return w <= 0.15 ? 0.08 : w * 0.5;
+        })
     )
     .force("charge", forceManyBody<LayoutNode>().strength(opts.chargeStrength))
     .force("center", forceCenter(0, 0))
@@ -145,7 +175,7 @@ export function computeLayout(
     .force("y", forceY(0).strength(0.05))
     .force("collide", forceCollide<LayoutNode>((d) => {
       return (nodeSizeMap.get(d.id) ?? opts.nodeRadius) * 1.2;
-    }).iterations(2));
+    }).iterations(3));
 
   // Add cluster force if clusters are provided
   if (clusters && clusters.length > 0) {
@@ -162,7 +192,7 @@ export function computeLayout(
     simulation.tick();
   }
 
-  // Extract positions
+  // Extract positions (includes both paper nodes and annotation nodes)
   const positions = new Map<string, { x: number; y: number }>();
   for (const node of layoutNodes) {
     positions.set(node.id, { x: node.x, y: node.y });
@@ -471,11 +501,15 @@ export function createAnimatedLayout(
  * Compute a hierarchical (Sugiyama/dagre) layout for the given nodes and edges.
  * Produces clean layered layouts ideal for directed citation/reference graphs.
  * Falls back to compact grid when there are no edges.
+ * When annotationNodes are provided they are included in the dagre graph and
+ * linked to their anchor paper nodes so they are placed in adjacent ranks
+ * without overlapping.
  */
 export function computeDagreLayout(
   nodes: Map<string, PaperNode> | PaperNode[],
   edges: GraphEdge[],
-  options?: DagreLayoutOptions
+  options?: DagreLayoutOptions,
+  annotationNodes?: Map<string, AnnotationNode> | AnnotationNode[]
 ): Map<string, { x: number; y: number }> {
   const { rankdir = "TB", nodeSep = 60, rankSep = 120 } = options ?? {};
 
@@ -489,13 +523,22 @@ export function computeDagreLayout(
     (e) => nodeSet.has(e.source) && nodeSet.has(e.target)
   );
 
+  const annotationArray = annotationNodes
+    ? annotationNodes instanceof Map
+      ? Array.from(annotationNodes.values())
+      : annotationNodes
+    : [];
+
   // Fall back to grid when there's no topology to rank
   if (validEdges.length === 0) {
     const spacing = 240;
-    return compactGridPositions(
+    const paperPositions = compactGridPositions(
       nodeArray.map((n) => n.id),
       spacing
     );
+    // Place unattached annotations in a grid below paper nodes
+    placeUnattachedAnnotations(annotationArray, paperPositions, nodeSet);
+    return paperPositions;
   }
 
   const g = new dagre.graphlib.Graph();
@@ -511,17 +554,34 @@ export function computeDagreLayout(
     g.setEdge(edge.source, edge.target, { weight: edge.weight });
   }
 
+  // Add annotation nodes to dagre
+  for (const a of annotationArray) {
+    const dims = getAnnotationNodeDimensions(a.type);
+    g.setNode(a.id, { width: dims.width, height: dims.height });
+    if (a.attachedToNodeId && nodeSet.has(a.attachedToNodeId)) {
+      // Edge from anchor → annotation so annotation sits in a child rank
+      g.setEdge(a.attachedToNodeId, a.id, { weight: 0.5 });
+    }
+  }
+
   dagre.layout(g);
 
   const positions = new Map<string, { x: number; y: number }>();
   for (const nodeId of g.nodes()) {
     const n = g.node(nodeId);
-    if (n) {
-      // dagre returns center coords; ReactFlow expects top-left corner
-      const node = nodeArray.find((nd) => nd.id === nodeId);
-      const dims = node
-        ? getNodeDimensions(node.data.citationCount, node.scores.relevance)
-        : { width: 200, height: 80 };
+    if (!n) continue;
+    // dagre returns center coords; ReactFlow expects top-left corner
+    const paperNode = nodeArray.find((nd) => nd.id === nodeId);
+    if (paperNode) {
+      const dims = getNodeDimensions(paperNode.data.citationCount, paperNode.scores.relevance);
+      positions.set(nodeId, {
+        x: n.x - dims.width / 2,
+        y: n.y - dims.height / 2,
+      });
+    } else {
+      // annotation node
+      const annotation = annotationArray.find((a) => a.id === nodeId);
+      const dims = getAnnotationNodeDimensions(annotation?.type);
       positions.set(nodeId, {
         x: n.x - dims.width / 2,
         y: n.y - dims.height / 2,
@@ -529,5 +589,46 @@ export function computeDagreLayout(
     }
   }
 
+  // Place annotations that had no anchor outside dagre (they weren't added to the graph)
+  const unattached = annotationArray.filter(
+    (a) => !a.attachedToNodeId || !nodeSet.has(a.attachedToNodeId)
+  );
+  placeUnattachedAnnotations(unattached, positions, nodeSet);
+
   return positions;
+}
+
+/**
+ * Position unattached annotation nodes in a compact row below the lowest
+ * paper node so they don't overlap the main graph.
+ */
+function placeUnattachedAnnotations(
+  annotations: AnnotationNode[],
+  positions: Map<string, { x: number; y: number }>,
+  paperNodeSet: Set<string>
+): void {
+  if (annotations.length === 0) return;
+
+  // Find the bottom edge of all currently placed nodes
+  let maxY = 0;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  for (const [id, pos] of positions) {
+    if (paperNodeSet.has(id)) {
+      if (pos.y > maxY) maxY = pos.y;
+      if (pos.x < minX) minX = pos.x;
+      if (pos.x > maxX) maxX = pos.x;
+    }
+  }
+
+  const startX = minX === Infinity ? 0 : minX;
+  const rowY = maxY + 180; // 180px gap below last paper row
+  const colSpacing = 220;
+
+  for (let i = 0; i < annotations.length; i++) {
+    positions.set(annotations[i].id, {
+      x: startX + i * colSpacing,
+      y: rowY,
+    });
+  }
 }

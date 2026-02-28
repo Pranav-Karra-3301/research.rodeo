@@ -1,3 +1,12 @@
+import type { AnnotationType } from "@/types";
+
+/** Fixed dimensions for annotation/accessory nodes used in layout and collision detection. */
+export function getAnnotationNodeDimensions(type?: AnnotationType): { width: number; height: number } {
+  if (type === "summary") return { width: 300, height: 110 };
+  // insight, key-find, dead-end, question all use 180px wide cards
+  return { width: 180, height: 100 };
+}
+
 export function getNodeDimensions(
   citationCount: number,
   relevanceScore: number

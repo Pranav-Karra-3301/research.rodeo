@@ -289,15 +289,38 @@ export async function executeGraphCommand(intent: GraphCommandIntent): Promise<G
       case "relayout": {
         const graph = useGraphStore.getState();
         const algorithm = intent.algorithm ?? "dagre";
-        const positions =
+        const allPositions =
           algorithm === "force"
-            ? computeLayout(graph.nodes, graph.edges, graph.clusters, {
-                width: 1200,
-                height: 800,
-                iterations: 120,
-              })
-            : computeDagreLayout(graph.nodes, graph.edges);
-        persistUpdateNodePositions(positions);
+            ? computeLayout(
+                graph.nodes,
+                graph.edges,
+                graph.clusters,
+                { width: 1200, height: 800, iterations: 120 },
+                graph.annotationNodes
+              )
+            : computeDagreLayout(
+                graph.nodes,
+                graph.edges,
+                undefined,
+                graph.annotationNodes
+              );
+
+        // Split positions: paper nodes go through the DB-persisted path,
+        // annotation positions update the store directly (persisted via snapshot).
+        const paperPositions = new Map<string, { x: number; y: number }>();
+        const annotationPositions = new Map<string, { x: number; y: number }>();
+        for (const [id, pos] of allPositions) {
+          if (id.startsWith("annotation-")) {
+            annotationPositions.set(id, pos);
+          } else {
+            paperPositions.set(id, pos);
+          }
+        }
+        persistUpdateNodePositions(paperPositions);
+        if (annotationPositions.size > 0) {
+          graph.updateAnnotationPositions(annotationPositions);
+        }
+
         const summary =
           algorithm === "force"
             ? "Organic layout applied"
