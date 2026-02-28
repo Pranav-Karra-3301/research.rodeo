@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import {
   Compass, History, Quote, Swords,
-  Archive, Maximize, Map, LayoutGrid,
+  Archive, Maximize, Map, LayoutGrid, Network,
   Trash2, Lightbulb, X, Star, HelpCircle,
   Plus, Eraser, Crosshair,
 } from "lucide-react";
@@ -31,6 +31,7 @@ interface CanvasMenuProps {
   onFitView: () => void;
   onToggleMinimap: () => void;
   onAutoLayout: () => void;
+  onOrganicLayout: () => void;
   onAddSource?: () => void;
   onClearGraph?: () => void;
   onClose: () => void;
@@ -149,7 +150,10 @@ function buildCanvasMenuGroups(props: CanvasMenuProps): MenuItem[][] {
     [
       { label: "Fit view", icon: Maximize, onClick: props.onFitView },
       { label: "Toggle minimap", icon: Map, onClick: props.onToggleMinimap },
-      { label: "Auto-layout", icon: LayoutGrid, onClick: props.onAutoLayout },
+    ],
+    [
+      { label: "Hierarchical layout", icon: LayoutGrid, onClick: props.onAutoLayout },
+      { label: "Organic layout", icon: Network, onClick: props.onOrganicLayout },
     ],
   ];
   if (props.onAddSource) {

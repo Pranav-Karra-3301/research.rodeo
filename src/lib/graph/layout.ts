@@ -9,6 +9,7 @@ import {
   type SimulationNodeDatum,
   type SimulationLinkDatum,
 } from "d3-force";
+import dagre from "@dagrejs/dagre";
 import type { PaperNode, GraphEdge, Cluster } from "@/types";
 import { getNodeDimensions } from "@/lib/visual/importance-size";
 
@@ -32,6 +33,15 @@ export interface LayoutOptions {
   linkDistance?: number;
   chargeStrength?: number;
   clusterStrength?: number;
+}
+
+export interface DagreLayoutOptions {
+  /** Graph flow direction: TB (top→bottom), LR (left→right), BT, RL. Default: "TB" */
+  rankdir?: "TB" | "LR" | "BT" | "RL";
+  /** Horizontal spacing between nodes in the same rank (px). Default: 60 */
+  nodeSep?: number;
+  /** Vertical spacing between ranks (px). Default: 120 */
+  rankSep?: number;
 }
 
 const DEFAULTS: Required<LayoutOptions> = {
@@ -455,4 +465,69 @@ export function createAnimatedLayout(
       return positions;
     },
   };
+}
+
+/**
+ * Compute a hierarchical (Sugiyama/dagre) layout for the given nodes and edges.
+ * Produces clean layered layouts ideal for directed citation/reference graphs.
+ * Falls back to compact grid when there are no edges.
+ */
+export function computeDagreLayout(
+  nodes: Map<string, PaperNode> | PaperNode[],
+  edges: GraphEdge[],
+  options?: DagreLayoutOptions
+): Map<string, { x: number; y: number }> {
+  const { rankdir = "TB", nodeSep = 60, rankSep = 120 } = options ?? {};
+
+  const nodeArray =
+    nodes instanceof Map ? Array.from(nodes.values()) : nodes;
+
+  if (nodeArray.length === 0) return new Map();
+
+  const nodeSet = new Set(nodeArray.map((n) => n.id));
+  const validEdges = edges.filter(
+    (e) => nodeSet.has(e.source) && nodeSet.has(e.target)
+  );
+
+  // Fall back to grid when there's no topology to rank
+  if (validEdges.length === 0) {
+    const spacing = 240;
+    return compactGridPositions(
+      nodeArray.map((n) => n.id),
+      spacing
+    );
+  }
+
+  const g = new dagre.graphlib.Graph();
+  g.setGraph({ rankdir, nodesep: nodeSep, ranksep: rankSep, marginx: 40, marginy: 40 });
+  g.setDefaultEdgeLabel(() => ({}));
+
+  for (const node of nodeArray) {
+    const dims = getNodeDimensions(node.data.citationCount, node.scores.relevance);
+    g.setNode(node.id, { width: dims.width, height: dims.height });
+  }
+
+  for (const edge of validEdges) {
+    g.setEdge(edge.source, edge.target, { weight: edge.weight });
+  }
+
+  dagre.layout(g);
+
+  const positions = new Map<string, { x: number; y: number }>();
+  for (const nodeId of g.nodes()) {
+    const n = g.node(nodeId);
+    if (n) {
+      // dagre returns center coords; ReactFlow expects top-left corner
+      const node = nodeArray.find((nd) => nd.id === nodeId);
+      const dims = node
+        ? getNodeDimensions(node.data.citationCount, node.scores.relevance)
+        : { width: 200, height: 80 };
+      positions.set(nodeId, {
+        x: n.x - dims.width / 2,
+        y: n.y - dims.height / 2,
+      });
+    }
+  }
+
+  return positions;
 }

@@ -7,6 +7,7 @@ import { useGraphStore } from "@/store/graph-store";
 import { useChatStore } from "@/store/chat-store";
 import { parsePersistedNotes, flushPendingGraphWrites } from "@/lib/db/graph-actions";
 import { fromDbNodeId } from "@/lib/db/node-id";
+import { applySnapshotToStore, type GraphSnapshot } from "@/lib/graph/snapshot";
 import type {
   PaperNode,
   GraphEdge,
@@ -255,6 +256,45 @@ export function SpacetimeDBProvider({ children }: { children: React.ReactNode })
 
   const graphStore = useGraphStore;
   const chatStore = useChatStore;
+
+  // Tracks which hole's graph was loaded from R2 in this render cycle.
+  // Used to avoid STDB overwriting an R2-hydrated graph in onApplied.
+  const r2LoadedForHoleRef = useRef<string | null>(null);
+
+  // Load graph from R2 whenever the active rabbit hole changes.
+  useEffect(() => {
+    if (!currentRabbitHoleId) return;
+
+    const id = currentRabbitHoleId;
+    r2LoadedForHoleRef.current = null;
+
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/graph?rabbitHoleId=${encodeURIComponent(id)}`
+        );
+        if (!res.ok) return;
+
+        const data = (await res.json()) as {
+          graph: GraphSnapshot | null;
+          r2Available: boolean;
+        };
+
+        // Bail out if the user switched to a different hole before we got the response.
+        if (useRabbitHoleStore.getState().currentRabbitHoleId !== id) return;
+
+        if (data.graph) {
+          applySnapshotToStore(data.graph);
+          r2LoadedForHoleRef.current = id;
+          console.log(`[R2] ✓ loaded graph for hole ${id.slice(0, 8)} — ${data.graph.nodes.length} nodes`);
+        } else if (data.r2Available) {
+          console.log(`[R2] No stored graph for hole ${id.slice(0, 8)}`);
+        }
+      } catch (err) {
+        console.warn(`[R2] Failed to load graph for hole ${id.slice(0, 8)}:`, err);
+      }
+    })();
+  }, [currentRabbitHoleId]);
 
   // Initialize connection once
   useEffect(() => {
@@ -642,10 +682,17 @@ export function SpacetimeDBProvider({ children }: { children: React.ReactNode })
           if (row.rabbitHoleId === id) messagesArr.push(rowToChatMessage(row));
         }
 
-        graphStore.getState().clearGraph();
-        if (nodesArr.length > 0) graphStore.getState().addNodes(nodesArr);
-        if (edgesArr.length > 0) graphStore.getState().addEdges(edgesArr);
-        if (clustersArr.length > 0) graphStore.getState().setClusters(clustersArr);
+        // Only hydrate graph from STDB if R2 has not already loaded this hole.
+        // R2 is the source of truth for graph data when configured.
+        if (r2LoadedForHoleRef.current !== id) {
+          graphStore.getState().clearGraph();
+          if (nodesArr.length > 0) graphStore.getState().addNodes(nodesArr);
+          if (edgesArr.length > 0) graphStore.getState().addEdges(edgesArr);
+          if (clustersArr.length > 0) graphStore.getState().setClusters(clustersArr);
+        } else {
+          console.log(`[STDB] hole:${id.slice(0, 8)} graph already loaded from R2; skipping STDB graph hydration`);
+        }
+
         const currentActive = chatStore.getState().byHole[id]?.activeThreadId ?? null;
         chatStore.getState().hydrateHole({
           rabbitHoleId: id,

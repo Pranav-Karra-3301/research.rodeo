@@ -69,6 +69,7 @@ interface GraphState {
   removeAnnotation: (annotationId: string) => void;
   updateAnnotation: (id: string, content: string) => void;
   getAnnotationsForNode: (nodeId: string) => AnnotationNode[];
+  setAnnotationNodes: (annotations: AnnotationNode[]) => void;
 
   // --- Derived Getters ---
   getNode: (nodeId: string) => PaperNode | undefined;
@@ -401,6 +402,15 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
       (a) => a.attachedToNodeId === nodeId
     );
   },
+
+  setAnnotationNodes: (annotations) =>
+    set(() => {
+      const annotationNodes = new Map<string, AnnotationNode>();
+      for (const a of annotations) {
+        annotationNodes.set(a.id, a);
+      }
+      return { annotationNodes };
+    }),
 
   // --- Derived Getters ---
 

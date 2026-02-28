@@ -152,6 +152,10 @@ export function UnifiedChatInput() {
   // --- Track executed tool calls to prevent double-execution ---
   const executedToolCalls = useRef(new Set<string>());
 
+  // --- Track graph-modifying AI tool calls for post-stream auto-relayout ---
+  const aiGraphChangesRef = useRef(0);
+  const prevLoadingRef = useRef(false);
+
   const nodes = useGraphStore((s) => s.nodes);
   const clusters = useGraphStore((s) => s.clusters);
   const query = useGraphStore((s) => s.query);
@@ -210,6 +214,7 @@ export function UnifiedChatInput() {
           url: args.url,
         };
         void executeGraphCommand({ type: "add-node", paper, materialize: true, source: "chat" });
+        aiGraphChangesRef.current += 1;
         break;
       }
       case "connectGraphNodes":
@@ -221,6 +226,7 @@ export function UnifiedChatInput() {
           evidence: args.reason,
           source: "chat",
         });
+        aiGraphChangesRef.current += 1;
         break;
       case "expandGraphNode":
         void executeGraphCommand({
@@ -333,6 +339,17 @@ export function UnifiedChatInput() {
   useEffect(() => {
     if (showChat) chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, status, showChat]);
+
+  // Auto-relayout after AI batch finishes adding/connecting nodes
+  useEffect(() => {
+    const wasLoading = prevLoadingRef.current;
+    prevLoadingRef.current = isChatLoading;
+
+    if (wasLoading && !isChatLoading && aiGraphChangesRef.current > 0) {
+      aiGraphChangesRef.current = 0;
+      void executeGraphCommand({ type: "relayout", algorithm: "dagre", source: "chat" });
+    }
+  }, [isChatLoading]);
 
   // Auto-resize textarea
   useEffect(() => {

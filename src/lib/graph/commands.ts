@@ -8,7 +8,7 @@ import type {
   PaperMetadata,
   PaperNode,
 } from "@/types";
-import { computeLayout, incrementalLayout } from "@/lib/graph/layout";
+import { computeLayout, computeDagreLayout, incrementalLayout } from "@/lib/graph/layout";
 import {
   persistAddNodes,
   persistAddEdges,
@@ -288,13 +288,20 @@ export async function executeGraphCommand(intent: GraphCommandIntent): Promise<G
 
       case "relayout": {
         const graph = useGraphStore.getState();
-        const positions = computeLayout(graph.nodes, graph.edges, graph.clusters, {
-          width: 1200,
-          height: 800,
-          iterations: 120,
-        });
+        const algorithm = intent.algorithm ?? "dagre";
+        const positions =
+          algorithm === "force"
+            ? computeLayout(graph.nodes, graph.edges, graph.clusters, {
+                width: 1200,
+                height: 800,
+                iterations: 120,
+              })
+            : computeDagreLayout(graph.nodes, graph.edges);
         persistUpdateNodePositions(positions);
-        const summary = "Relayout applied to graph";
+        const summary =
+          algorithm === "force"
+            ? "Organic layout applied"
+            : "Hierarchical layout applied";
         return { applied: true, summary };
       }
 
