@@ -328,6 +328,7 @@ export type GraphCommandIntent =
     }
   | {
       type: "relayout";
+      algorithm?: "dagre" | "force";
       source?: "chat" | "canvas" | "system";
     }
   | {

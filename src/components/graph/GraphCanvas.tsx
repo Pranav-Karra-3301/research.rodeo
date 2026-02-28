@@ -242,7 +242,11 @@ export function GraphCanvas() {
   }, [handleDeleteWithHistory, clearSelection]);
 
   const handleRelayout = useCallback(async () => {
-    await executeGraphCommand({ type: "relayout", source: "canvas" });
+    await executeGraphCommand({ type: "relayout", algorithm: "dagre", source: "canvas" });
+  }, []);
+
+  const handleOrganicLayout = useCallback(async () => {
+    await executeGraphCommand({ type: "relayout", algorithm: "force", source: "canvas" });
   }, []);
 
   // Wire up keyboard shortcuts
@@ -323,6 +327,7 @@ export function GraphCanvas() {
           position={ctxMenu.position}
           onToggleMinimap={() => setMinimap(!minimap)}
           onRelayout={handleRelayout}
+          onOrganicLayout={handleOrganicLayout}
           onAddSource={openAddSource}
           onClearGraph={persistClearGraph}
           onClose={closeMenu}
@@ -336,6 +341,7 @@ function PaneMenu({
   position,
   onToggleMinimap,
   onRelayout,
+  onOrganicLayout,
   onAddSource,
   onClearGraph,
   onClose,
@@ -343,6 +349,7 @@ function PaneMenu({
   position: { x: number; y: number };
   onToggleMinimap: () => void;
   onRelayout: () => Promise<void>;
+  onOrganicLayout: () => Promise<void>;
   onAddSource: () => void;
   onClearGraph: () => void;
   onClose: () => void;
@@ -356,6 +363,9 @@ function PaneMenu({
       onToggleMinimap={onToggleMinimap}
       onAutoLayout={() => {
         void onRelayout().then(() => fitView({ padding: 0.25, maxZoom: 1.25 }));
+      }}
+      onOrganicLayout={() => {
+        void onOrganicLayout().then(() => fitView({ padding: 0.25, maxZoom: 1.25 }));
       }}
       onAddSource={onAddSource}
       onClearGraph={onClearGraph}

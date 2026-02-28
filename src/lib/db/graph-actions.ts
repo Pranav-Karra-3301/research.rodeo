@@ -414,3 +414,32 @@ export function persistClearGraph(): void {
 
   dispatchReducer("clearRabbitHole", { rabbitHoleId: holeId });
 }
+
+/**
+ * Persist the full in-memory graph to SpacetimeDB for the current rabbit hole.
+ * Clears the hole on the server then re-sends all nodes, edges, and clusters.
+ * Use when the graph was modified without going through persist* (e.g. Add Source)
+ * or to force a full sync.
+ */
+export async function saveGraphToSpacetimeDB(): Promise<void> {
+  const holeId = ensureHoleForNodeWrites();
+  const state = useGraphStore.getState();
+  const nodesArr = Array.from(state.nodes.values());
+  const edgesArr = state.edges;
+  const clustersArr = state.clusters;
+
+  if (nodesArr.length === 0 && edgesArr.length === 0 && clustersArr.length === 0) {
+    logStdb("[STDB] saveGraphToSpacetimeDB: graph empty, skipping");
+    return;
+  }
+
+  logStdb(`[STDB] saveGraphToSpacetimeDB: clearing hole then re-adding ${nodesArr.length} nodes, ${edgesArr.length} edges, ${clustersArr.length} clusters`);
+  dispatchReducer("clearRabbitHole", { rabbitHoleId: holeId });
+  await flushPendingGraphWrites();
+
+  if (nodesArr.length > 0) persistAddNodes(nodesArr);
+  if (edgesArr.length > 0) persistAddEdges(edgesArr);
+  persistSetClusters(clustersArr);
+  await flushPendingGraphWrites();
+  logStdb("[STDB] saveGraphToSpacetimeDB: done");
+}
