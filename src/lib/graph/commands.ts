@@ -115,10 +115,6 @@ export async function executeGraphCommand(intent: GraphCommandIntent): Promise<G
         const graph = useGraphStore.getState();
         const existing = graph.nodes.get(intent.paper.id);
 
-        // #region agent log
-        fetch('http://127.0.0.1:7630/ingest/a24eb51a-4474-4af3-8e2c-8d62a547b24a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'e1b951'},body:JSON.stringify({sessionId:'e1b951',location:'commands.ts:add-node',message:'add-node command received',data:{paperId:intent.paper.id,title:intent.paper.title,alreadyExists:!!existing,nodeCount:graph.nodes.size},hypothesisId:'D',timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
-
         if (existing) {
           if (intent.materialize && existing.state !== "materialized") {
             persistUpdateNodeState(existing.id, "materialized");

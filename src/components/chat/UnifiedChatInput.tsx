@@ -14,8 +14,8 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport } from "ai";
-import type { UIMessage } from "ai";
+import { DefaultChatTransport, isToolUIPart, getToolOrDynamicToolName } from "ai";
+import type { UIMessage, DynamicToolUIPart, ToolUIPart, UITools } from "ai";
 import { cn } from "@/lib/utils";
 import { useUIStore } from "@/store/ui-store";
 import { useGraphStore } from "@/store/graph-store";
@@ -26,16 +26,10 @@ import { MarkdownRenderer } from "./MarkdownRenderer";
 import type { ChatInputMode } from "@/store/ui-store";
 import type { PaperMetadata, PaperNode, Cluster, WeightConfig, AnnotationNode } from "@/types";
 
-// Local type for AI SDK tool invocation parts (runtime shape from useChat)
-interface ToolInvPart {
-  type: string;
-  toolInvocation: {
-    toolCallId: string;
-    toolName: string;
-    args?: Record<string, unknown>;
-    state: string;
-  };
-}
+// AI SDK v6: tool parts are DynamicToolUIPart (type:"dynamic-tool") or ToolUIPart (type:"tool-{name}")
+// state: "output-available" = completed (was "result" in v4/v5)
+// input = the args (was "args" in v4/v5)
+type AnyToolPart = DynamicToolUIPart | ToolUIPart<UITools>;
 
 type SearchType = "auto" | "instant" | "fast" | "deep";
 
@@ -126,11 +120,8 @@ function getMessageText(msg: UIMessage): string {
     .join("");
 }
 
-function getToolParts(msg: UIMessage) {
-  return msg.parts.filter(
-    (p): p is Extract<UIMessage["parts"][number], { type: "tool-invocation" }> =>
-      p.type === "tool-invocation"
-  );
+function getToolParts(msg: UIMessage): AnyToolPart[] {
+  return msg.parts.filter(isToolUIPart) as AnyToolPart[];
 }
 
 export function UnifiedChatInput() {
@@ -185,19 +176,14 @@ export function UnifiedChatInput() {
     );
   }, [nodes, clusters, query, weights, annotationNodes]);
 
-  // #region agent log
-  const transportRecreateCount = useRef(0);
-  // #endregion
+  // Keep project context in a ref so the transport is never recreated when graph state changes
+  const projectContextRef = useRef<string[]>([]);
+  projectContextRef.current = getProjectContext();
 
   const transport = useMemo(
-    () => {
-      transportRecreateCount.current += 1;
-      // #region agent log
-      fetch('http://127.0.0.1:7630/ingest/a24eb51a-4474-4af3-8e2c-8d62a547b24a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'e1b951'},body:JSON.stringify({sessionId:'e1b951',location:'UnifiedChatInput.tsx:transport-memo',message:'transport recreated',data:{count:transportRecreateCount.current},hypothesisId:'A',timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
-      return new DefaultChatTransport({ api: "/api/chat", body: { projectContext: getProjectContext() } });
-    },
-    [getProjectContext]
+    () => new DefaultChatTransport({ api: "/api/chat", body: () => ({ projectContext: projectContextRef.current }) }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [] // stable transport — never recreated; context is read from ref at request time
   );
   const { messages, sendMessage, status } = useChat({ transport });
   const isChatLoading = status === "submitted" || status === "streaming";
@@ -223,7 +209,7 @@ export function UnifiedChatInput() {
           openAccessPdf: args.openAccessPdf,
           url: args.url,
         };
-        void executeGraphCommand({ type: "add-node", paper, materialize: false, source: "chat" });
+        void executeGraphCommand({ type: "add-node", paper, materialize: true, source: "chat" });
         break;
       }
       case "connectGraphNodes":
@@ -306,25 +292,25 @@ export function UnifiedChatInput() {
 
   // --- Auto-execute completed tool invocations ---
   useEffect(() => {
-    // #region agent log
-    const allToolInvs = messages.flatMap(m => m.parts.filter(p => p.type === 'tool-invocation'));
-    fetch('http://127.0.0.1:7630/ingest/a24eb51a-4474-4af3-8e2c-8d62a547b24a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'e1b951'},body:JSON.stringify({sessionId:'e1b951',location:'UnifiedChatInput.tsx:tool-effect',message:'tool effect fired',data:{msgCount:messages.length,totalToolInvs:allToolInvs.length,toolStates:allToolInvs.map((p:any)=>({name:p.toolInvocation?.toolName,state:p.toolInvocation?.state,id:p.toolInvocation?.toolCallId?.slice(-6)}))},hypothesisId:'B',timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     for (const msg of messages) {
       if (msg.role !== "assistant") continue;
       for (const part of msg.parts) {
-        if (part.type !== "tool-invocation") continue;
-        const inv = (part as unknown as ToolInvPart).toolInvocation;
-        if (!inv || inv.state !== "result") continue;
-        if (executedToolCalls.current.has(inv.toolCallId)) continue;
+        if (!isToolUIPart(part)) continue;
+        const toolPart = part as AnyToolPart;
+        // AI SDK v6: "output-available" = completed tool call (was "result" in v4/v5)
+        if (toolPart.state !== "output-available") continue;
+        if (executedToolCalls.current.has(toolPart.toolCallId)) continue;
 
-        if (CONFIRM_REQUIRED.has(inv.toolName)) {
-          // Show confirmation UI instead of auto-executing
-          if (!pendingArchive || pendingArchive.toolCallId !== inv.toolCallId) {
-            const nodeId = inv.args?.nodeId as string;
+        const toolName = getToolOrDynamicToolName(toolPart);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const args = (toolPart as any).input as Record<string, unknown> ?? {};
+
+        if (CONFIRM_REQUIRED.has(toolName)) {
+          if (!pendingArchive || pendingArchive.toolCallId !== toolPart.toolCallId) {
+            const nodeId = args?.nodeId as string;
             const node = useGraphStore.getState().nodes.get(nodeId);
             setPendingArchive({
-              toolCallId: inv.toolCallId,
+              toolCallId: toolPart.toolCallId,
               nodeId,
               nodeTitle: node?.data.title ?? nodeId,
             });
@@ -332,15 +318,12 @@ export function UnifiedChatInput() {
           continue;
         }
 
-        if (GRAPH_TOOLS.has(inv.toolName)) {
-          // #region agent log
-          fetch('http://127.0.0.1:7630/ingest/a24eb51a-4474-4af3-8e2c-8d62a547b24a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'e1b951'},body:JSON.stringify({sessionId:'e1b951',location:'UnifiedChatInput.tsx:executeToolAction',message:'executing graph tool',data:{toolName:inv.toolName,args:inv.args,alreadyExecuted:executedToolCalls.current.has(inv.toolCallId)},hypothesisId:'C',timestamp:Date.now()})}).catch(()=>{});
-          // #endregion
-          executedToolCalls.current.add(inv.toolCallId);
-          executeToolAction(inv.toolName, inv.args);
-        } else if (ANNOTATION_TOOLS.has(inv.toolName)) {
-          executedToolCalls.current.add(inv.toolCallId);
-          executeAnnotationAction(inv.toolName, inv.args);
+        if (GRAPH_TOOLS.has(toolName)) {
+          executedToolCalls.current.add(toolPart.toolCallId);
+          executeToolAction(toolName, args);
+        } else if (ANNOTATION_TOOLS.has(toolName)) {
+          executedToolCalls.current.add(toolPart.toolCallId);
+          executeAnnotationAction(toolName, args);
         }
       }
     }
@@ -651,17 +634,17 @@ export function UnifiedChatInput() {
                   <div className="flex justify-start">
                     <div className="max-w-[85%] space-y-1.5">
                       {tools.map((tool, ti) => {
-                        const inv = "toolInvocation" in tool
-                          ? (tool as unknown as ToolInvPart).toolInvocation
-                          : null;
-                        const name = inv?.toolName || "unknown";
-                        const active = inv ? inv.state !== "result" : false;
-                        const isExecuted = inv ? executedToolCalls.current.has(inv.toolCallId) : false;
+                        const name = getToolOrDynamicToolName(tool);
+                        // AI SDK v6: "output-available" = done, anything else = active
+                        const active = tool.state !== "output-available" && tool.state !== "output-error";
+                        const isExecuted = executedToolCalls.current.has(tool.toolCallId);
                         const isGraphOrAnnotation = GRAPH_TOOLS.has(name) || ANNOTATION_TOOLS.has(name);
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        const args = (tool as any).input;
 
                         // Show green success indicator for executed graph/annotation tools
                         if (!active && isExecuted && isGraphOrAnnotation) {
-                          const label = getToolStatusLabel(name, inv?.args, true);
+                          const label = getToolStatusLabel(name, args, true);
                           return (
                             <div key={`t-${ti}`} className="flex items-center gap-1.5 text-[10px] text-[#22c55e] bg-[#dcfce7] rounded-md px-2 py-1">
                               <Check className="h-2.5 w-2.5" />
@@ -672,7 +655,7 @@ export function UnifiedChatInput() {
 
                         const label = active
                           ? (TOOL_LABELS[name] || `Running ${name}`) + "..."
-                          : getToolStatusLabel(name, inv?.args, false);
+                          : getToolStatusLabel(name, args, false);
 
                         return (
                           <div key={`t-${ti}`} className="flex items-center gap-1.5 text-[10px] text-[#78716c] py-0.5">
