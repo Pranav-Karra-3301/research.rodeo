@@ -23,7 +23,6 @@ import { layout } from "@/lib/design-tokens";
 const VIEW_OPTIONS: { value: CurrentView; label: string }[] = [
   { value: "graph", label: "Graph" },
   { value: "list", label: "List" },
-  { value: "chat", label: "Chat" },
 ];
 
 export function TopBar() {
@@ -149,7 +148,7 @@ export function TopBar() {
               </kbd>
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Search papers (Cmd+K)</TooltipContent>
+          <TooltipContent>Search in graph (Cmd+K)</TooltipContent>
         </Tooltip>
 
         {/* Export */}

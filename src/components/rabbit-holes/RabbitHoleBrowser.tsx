@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useMemo, useCallback } from "react";
-import { Plus, Search, ChevronDown, Rabbit, Trash2, Edit2, Check, X } from "lucide-react";
+import { Plus, Search, ChevronDown, Trash2, Edit2, Check, X } from "lucide-react";
+import { RabbitIcon } from "@/components/rabbit-holes/RabbitIcon";
 import { motion, AnimatePresence } from "framer-motion";
 import { nanoid } from "nanoid";
 import { Input } from "@/components/ui/Input";
@@ -105,7 +106,7 @@ export function RabbitHoleBrowser() {
     return (
       <div className="px-3 py-2 border-b border-[#e8e7e2]">
         <div className="flex items-center gap-2 text-[11px] text-[#a8a29e]">
-          <Rabbit className="w-3.5 h-3.5 shrink-0" />
+          <RabbitIcon className="w-3.5 h-3.5" />
           <span>Connecting...</span>
         </div>
       </div>
@@ -119,7 +120,7 @@ export function RabbitHoleBrowser() {
         onClick={() => setIsOpen((v) => !v)}
         className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-[#f3f2ee]/60 transition-colors"
       >
-        <Rabbit className="w-3.5 h-3.5 text-[#7c3aed] shrink-0" />
+        <RabbitIcon className="w-5 h-5 text-[#7c3aed]" />
         <span className="flex-1 text-left text-[12px] font-medium text-[#1c1917] truncate">
           {currentHole?.name ?? (rabbitHoles.length === 0 ? "Start a Rabbit Hole" : "Select Rabbit Hole")}
         </span>

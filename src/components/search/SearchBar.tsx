@@ -46,7 +46,7 @@ export function SearchBar() {
   const selectNode = useGraphStore((s) => s.selectNode);
 
   const [inputValue, setInputValue] = useState("");
-  const [searchScope, setSearchScope] = useState<"web" | "local">("web");
+  const [searchScope, setSearchScope] = useState<"web" | "local">("local");
   const [searchMode, setSearchMode] = useState<SearchMode>("auto");
   const [selectedDomains, setSelectedDomains] = useState<string[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -244,38 +244,40 @@ export function SearchBar() {
 
   return (
     <Dialog open={searchOpen} onOpenChange={toggleSearch}>
-      <DialogContent className="sm:max-w-[640px] p-0 gap-0 overflow-hidden bg-[#f8f7f4] border-[#dddcd7]">
+      <DialogContent className="sm:max-w-[640px] p-0 gap-0 overflow-hidden bg-[#f8f7f4] border-[#e8e7e2]/50">
         <DialogTitle className="sr-only">Search papers</DialogTitle>
-        <div className="flex items-center border-b border-[#e8e7e2] px-4 transition-colors focus-within:bg-violet-50/60">
+        <div className="flex items-center border-b border-[#e8e7e2]/40 px-4 transition-colors">
           <Search className="w-5 h-5 text-[#78716c] shrink-0" />
           <input ref={inputRef} value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={handleKeyDown}
-            placeholder="Search papers, topics, or questions..."
+            placeholder={searchScope === "local" ? "Search in this graph…" : "Search papers, topics, or questions..."}
             className="flex-1 bg-transparent border-0 px-3 py-4 text-sm text-[#1c1917] placeholder:text-[#a8a29e] focus:outline-none focus-visible:outline-none" />
           {inputValue && (
-            <button onClick={() => setInputValue("")} className="text-[#78716c] hover:text-[#44403c]">
+            <button type="button" onClick={() => setInputValue("")} className="text-[#78716c] hover:text-[#44403c] outline-none focus:outline-none focus-visible:outline-none">
               <X className="w-4 h-4" />
             </button>
           )}
         </div>
 
-        <div className="px-4 py-2 flex flex-wrap items-center gap-2 border-b border-[#e8e7e2]/50">
+        <div className="px-4 py-2 flex flex-wrap items-center gap-3 border-b border-[#e8e7e2]/40">
           {/* Scope toggle: Web vs Local */}
           <button
+            type="button"
             onClick={() => { setSearchScope("web"); setLocalResults([]); setResults([]); setError(null); }}
-            className={cn("rounded-full px-3 py-1 text-xs transition-colors flex items-center gap-1",
+            className={cn("text-xs transition-colors flex items-center gap-1.5 py-1 outline-none focus:outline-none focus-visible:outline-none",
               searchScope === "web"
-                ? "bg-violet-600 text-white"
-                : "bg-[#f3f2ee] text-[#44403c] hover:bg-[#eeeee8]"
+                ? "text-[#1c1917] font-medium"
+                : "text-[#78716c] hover:text-[#44403c]"
             )}
           >
             <Globe className="w-3 h-3" /> Web
           </button>
           <button
+            type="button"
             onClick={() => { setSearchScope("local"); setLocalResults([]); setResults([]); setError(null); }}
-            className={cn("rounded-full px-3 py-1 text-xs transition-colors flex items-center gap-1",
+            className={cn("text-xs transition-colors flex items-center gap-1.5 py-1 outline-none focus:outline-none focus-visible:outline-none",
               searchScope === "local"
-                ? "bg-violet-600 text-white"
-                : "bg-[#f3f2ee] text-[#44403c] hover:bg-[#eeeee8]"
+                ? "text-[#1c1917] font-medium"
+                : "text-[#78716c] hover:text-[#44403c]"
             )}
           >
             <MapPin className="w-3 h-3" /> In Graph
@@ -283,22 +285,28 @@ export function SearchBar() {
 
           {searchScope === "web" && (
             <>
-              <div className="w-px h-4 bg-[#e8e7e2] mx-1" />
+              <div className="w-px h-4 bg-[#e8e7e2]/60 mx-0.5" />
               {DOMAIN_OPTIONS.map((d) => (
-                <button key={d.value} onClick={() => toggleDomain(d.value)}
-                  className={cn("rounded-full px-3 py-1 text-xs transition-colors",
+                <button
+                  key={d.value}
+                  type="button"
+                  onClick={() => toggleDomain(d.value)}
+                  className={cn("px-2 py-1 text-xs transition-colors outline-none focus:outline-none focus-visible:outline-none",
                     selectedDomains.includes(d.value)
-                      ? "bg-violet-600/20 text-[#7c3aed] border border-violet-500/30"
-                      : "bg-[#f3f2ee] text-[#44403c] hover:bg-[#eeeee8]"
+                      ? "text-[#1c1917] font-medium"
+                      : "text-[#78716c] hover:text-[#44403c]"
                   )}>{d.label}</button>
               ))}
-              <div className="w-px h-4 bg-[#e8e7e2] mx-1" />
+              <div className="w-px h-4 bg-[#e8e7e2]/60 mx-0.5" />
               {MODE_OPTIONS.map((m) => (
-                <button key={m.value} onClick={() => setSearchMode(m.value)}
-                  className={cn("rounded-full px-3 py-1 text-xs transition-colors",
+                <button
+                  key={m.value}
+                  type="button"
+                  onClick={() => setSearchMode(m.value)}
+                  className={cn("px-2 py-1 text-xs transition-colors outline-none focus:outline-none focus-visible:outline-none",
                     searchMode === m.value
-                      ? "bg-violet-600 text-white"
-                      : "bg-[#f3f2ee] text-[#44403c] hover:bg-[#eeeee8]"
+                      ? "text-[#1c1917] font-medium"
+                      : "text-[#78716c] hover:text-[#44403c]"
                   )}>{m.label}</button>
               ))}
             </>
@@ -350,7 +358,7 @@ export function SearchBar() {
                         : "Type a research question or topic"}
                     </p>
                     <p className="text-xs text-[#a8a29e]">
-                      Press <kbd className="px-1.5 py-0.5 bg-[#f3f2ee] rounded text-[#57534e] text-[10px] font-mono">Cmd+K</kbd> anytime to search
+                      Press <kbd className="text-[#57534e] text-[10px] font-mono">Cmd+K</kbd> anytime to search
                     </p>
                   </>
                 )}

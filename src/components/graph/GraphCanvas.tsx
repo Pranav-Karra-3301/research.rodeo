@@ -68,22 +68,27 @@ interface ContextMenuState {
   nodeTitle?: string;
 }
 
-/** When a node is materialized, fit view to it and select it so the user sees the new paper node. */
+/** When a node is materialized, pan to it (preserving zoom) and select it so the user sees the new paper node. */
 function FitViewOnMaterialize() {
   const lastMaterializedNodeId = useGraphStore((s) => s.lastMaterializedNodeId);
   const clearLastMaterializedNodeId = useGraphStore((s) => s.clearLastMaterializedNodeId);
   const selectNode = useGraphStore((s) => s.selectNode);
-  const { fitView } = useReactFlow();
+  const { setCenter, getZoom, getNode } = useReactFlow();
 
   useEffect(() => {
     if (!lastMaterializedNodeId) return;
     const timer = requestAnimationFrame(() => {
-      fitView({ nodes: [{ id: lastMaterializedNodeId }], padding: 0.3, maxZoom: 1.25, duration: 300 });
+      const node = getNode(lastMaterializedNodeId);
+      if (node) {
+        const x = node.position.x + (node.measured?.width ?? 200) / 2;
+        const y = node.position.y + (node.measured?.height ?? 100) / 2;
+        setCenter(x, y, { zoom: getZoom(), duration: 300 });
+      }
       selectNode(lastMaterializedNodeId);
       clearLastMaterializedNodeId();
     });
     return () => cancelAnimationFrame(timer);
-  }, [lastMaterializedNodeId, fitView, selectNode, clearLastMaterializedNodeId]);
+  }, [lastMaterializedNodeId, setCenter, getZoom, getNode, selectNode, clearLastMaterializedNodeId]);
 
   return null;
 }
@@ -96,9 +101,9 @@ export function GraphCanvas() {
   const clearSelection = useGraphStore((s) => s.clearSelection);
   const setRightPanel = useUIStore((s) => s.setRightPanel);
   const toggleSearch = useUIStore((s) => s.toggleSearch);
-  const setCurrentView = useUIStore((s) => s.setCurrentView);
   const openAddSource = useUIStore((s) => s.openAddSource);
   const { navigateToNode } = useEgoNavigation();
+  const reactFlow = useReactFlow();
 
   const [nodes, setNodes, onNC] = useNodesState(rfNodes);
   const [edges, setEdges, onEC] = useEdgesState(rfEdges);
@@ -124,14 +129,22 @@ export function GraphCanvas() {
       setCtxMenu(null);
       return;
     }
-    // Ego-centric navigation on click (skip annotation nodes)
+    // Smooth pan to clicked materialized node (no zoom change, no repositioning)
     if (!node.id.startsWith("annotation-")) {
-      navigateToNode(node.id);
+      const graphNode = useGraphStore.getState().nodes.get(node.id);
+      if (graphNode && graphNode.state === "materialized") {
+        const rfNode = reactFlow.getNode(node.id);
+        if (rfNode) {
+          const x = rfNode.position.x + (rfNode.measured?.width ?? 200) / 2;
+          const y = rfNode.position.y + (rfNode.measured?.height ?? 100) / 2;
+          reactFlow.setCenter(x, y, { zoom: reactFlow.getZoom(), duration: 400 });
+        }
+      }
     }
     selectNode(node.id);
     setRightPanel("reader");
     setCtxMenu(null);
-  }, [selectNode, toggleNodeSelection, navigateToNode, setRightPanel]);
+  }, [selectNode, toggleNodeSelection, reactFlow, setRightPanel]);
 
   const handleNodeCtx: NodeMouseHandler = useCallback((e, node) => {
     e.preventDefault();
@@ -236,8 +249,7 @@ export function GraphCanvas() {
   useKeyboard({
     onToggleSearch: toggleSearch,
     onToggleChat: useCallback(() => {
-      const view = useUIStore.getState().currentView;
-      useUIStore.getState().setCurrentView(view === "chat" ? "graph" : "chat");
+      // Chat is now embedded in the canvas via UnifiedChatInput
     }, []),
     onToggleExport: useCallback(() => {
       useUIStore.getState().toggleRightPanel("export");
@@ -299,6 +311,7 @@ export function GraphCanvas() {
           position={ctxMenu.position}
           nodeId={ctxMenu.nodeId}
           nodeTitle={ctxMenu.nodeTitle ?? ""}
+          onFocusView={() => navigateToNode(ctxMenu.nodeId!)}
           onExpand={(mode) => handleExpandNode(ctxMenu.nodeId!, mode)}
           onArchive={() => handleArchiveNode(ctxMenu.nodeId!)}
           onDelete={() => { handleDeleteWithHistory([ctxMenu.nodeId!]); closeMenu(); }}

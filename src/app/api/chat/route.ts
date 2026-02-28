@@ -98,7 +98,7 @@ export async function POST(req: Request) {
     system: systemPrompt,
     messages: prunedMessages,
     maxOutputTokens: 8192,
-    stopWhen: stepCountIs(8),
+    stopWhen: stepCountIs(20),
     providerOptions: {
       anthropic: anthropicProviderOptions,
     },
@@ -336,7 +336,7 @@ export async function POST(req: Request) {
       // Graph-mutating tools return action data; the client auto-executes them.
       addGraphNode: tool({
         description:
-          "Add a source or paper node to the graph. Use when the user wants to add a specific source, paper, or URL. The action executes automatically.",
+          "Add a source or paper node to the graph. IMPORTANT: Always pass `paperId` from search results so the graph can deduplicate nodes. The action executes automatically.",
         inputSchema: z.object({
           title: z.string().describe("Source or paper title"),
           url: z.string().url().optional().describe("Optional source URL (article, PDF, etc.)"),
@@ -375,9 +375,10 @@ export async function POST(req: Request) {
             .optional()
             .describe("Optional external identifiers"),
         }),
-        execute: async () => ({
+        execute: async ({ paperId, title }) => ({
           action: "addGraphNode",
-          message: "Adding source to graph",
+          nodeId: paperId || "auto-generated",
+          message: `Added "${title}" to graph (nodeId: ${paperId || "auto-generated"})`,
         }),
       }),
       connectGraphNodes: tool({
@@ -401,9 +402,11 @@ export async function POST(req: Request) {
             .describe("Type of connection"),
           reason: z.string().optional().describe("Optional evidence or explanation for inferred edges"),
         }),
-        execute: async () => ({
+        execute: async ({ sourceId, targetId, edgeType }) => ({
           action: "connectGraphNodes",
-          message: "Connecting nodes",
+          sourceId,
+          targetId,
+          message: `Connected ${sourceId} → ${targetId} (${edgeType})`,
         }),
       }),
       expandGraphNode: tool({
@@ -477,6 +480,22 @@ export async function POST(req: Request) {
         execute: async () => ({
           action: "saveCardForLater",
           message: "Saving card for later",
+        }),
+      }),
+      addSummaryNote: tool({
+        description:
+          "Add a standalone summary, question, or insight annotation to the graph. Use for cross-cutting synthesis that doesn't belong to a single paper (e.g. 'These papers converge on X'). Optionally attach to a specific node.",
+        inputSchema: z.object({
+          content: z.string().describe("The annotation text"),
+          type: z.enum(["summary", "question", "insight"]).describe("Type of note: summary for syntheses, question for open questions, insight for observations"),
+          attachedToNodeId: z.string().optional().describe("Optional node ID to attach this note to"),
+        }),
+        execute: async ({ content, type, attachedToNodeId }) => ({
+          action: "addSummaryNote",
+          content,
+          type,
+          attachedToNodeId,
+          message: `Added ${type} note: "${content.slice(0, 60)}${content.length > 60 ? "..." : ""}"`,
         }),
       }),
       // Annotation tools — return action data for client-side execution

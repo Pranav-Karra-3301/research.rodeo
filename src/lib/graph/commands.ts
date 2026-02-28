@@ -9,6 +9,15 @@ import type {
   PaperNode,
 } from "@/types";
 import { computeLayout, incrementalLayout } from "@/lib/graph/layout";
+import {
+  persistAddNodes,
+  persistAddEdges,
+  persistRemoveNodes,
+  persistRemoveEdges,
+  persistUpdateNodeState,
+  persistUpdateNodePositions,
+  persistSetClusters,
+} from "@/lib/db/graph-actions";
 import { useGraphStore } from "@/store/graph-store";
 import { useHistoryStore } from "@/store/history-store";
 
@@ -106,9 +115,13 @@ export async function executeGraphCommand(intent: GraphCommandIntent): Promise<G
         const graph = useGraphStore.getState();
         const existing = graph.nodes.get(intent.paper.id);
 
+        // #region agent log
+        fetch('http://127.0.0.1:7630/ingest/a24eb51a-4474-4af3-8e2c-8d62a547b24a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'e1b951'},body:JSON.stringify({sessionId:'e1b951',location:'commands.ts:add-node',message:'add-node command received',data:{paperId:intent.paper.id,title:intent.paper.title,alreadyExists:!!existing,nodeCount:graph.nodes.size},hypothesisId:'D',timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
+
         if (existing) {
           if (intent.materialize && existing.state !== "materialized") {
-            useGraphStore.getState().materializeNode(existing.id);
+            persistUpdateNodeState(existing.id, "materialized");
           }
           const summary = `Source already in graph: ${intent.paper.title}`;
           return { applied: true, summary, addedNodeIds: [existing.id] };
@@ -118,7 +131,7 @@ export async function executeGraphCommand(intent: GraphCommandIntent): Promise<G
         const node = makePaperNode(intent.paper, state);
         const [positioned] = positionForNewNodes([node]);
 
-        useGraphStore.getState().addNodes([positioned]);
+        persistAddNodes([positioned]);
         recalculateAll();
 
         const summary = `Added source: ${intent.paper.title}`;
@@ -129,12 +142,12 @@ export async function executeGraphCommand(intent: GraphCommandIntent): Promise<G
         useHistoryStore.getState().push({
           description: summary,
           undo: () => {
-            useGraphStore.getState().removeNodes([addedNodeId]);
+            persistRemoveNodes([addedNodeId]);
             recalculateAll();
           },
           redo: () => {
             const redoNode = makePaperNode(addedPaper, addedState);
-            useGraphStore.getState().addNodes([{ ...redoNode, position: positioned.position }]);
+            persistAddNodes([{ ...redoNode, position: positioned.position }]);
             recalculateAll();
           },
         });
@@ -151,7 +164,7 @@ export async function executeGraphCommand(intent: GraphCommandIntent): Promise<G
           intent.weight ?? 0.5,
           intent.evidence
         );
-        useGraphStore.getState().addEdges([edge]);
+        persistAddEdges([edge]);
         recalculateAll();
         const summary = `Connected ${intent.sourceId.slice(0, 8)} -> ${intent.targetId.slice(0, 8)}`;
         return { applied: true, summary, addedEdgeIds: [edge.id] };
@@ -210,9 +223,10 @@ export async function executeGraphCommand(intent: GraphCommandIntent): Promise<G
         );
 
         const positioned = positionForNewNodes(newNodes);
-        if (positioned.length > 0) useGraphStore.getState().addNodes(positioned);
-        if (newEdges.length > 0) useGraphStore.getState().addEdges(newEdges);
+        if (positioned.length > 0) persistAddNodes(positioned);
+        if (newEdges.length > 0) persistAddEdges(newEdges);
         recalculateAll();
+        persistSetClusters(useGraphStore.getState().clusters);
 
         const summary = `Expanded node with ${positioned.length} new sources (${intent.mode})`;
 
@@ -226,17 +240,19 @@ export async function executeGraphCommand(intent: GraphCommandIntent): Promise<G
             description: summary,
             undo: () => {
               if (expandedEdgeIds.length > 0) {
-                useGraphStore.getState().removeEdges(expandedEdgeIds);
+                persistRemoveEdges(expandedEdgeIds);
               }
               if (expandedNodeIds.length > 0) {
-                useGraphStore.getState().removeNodes(expandedNodeIds);
+                persistRemoveNodes(expandedNodeIds);
               }
               recalculateAll();
+              persistSetClusters(useGraphStore.getState().clusters);
             },
             redo: () => {
-              if (expandedNodes.length > 0) useGraphStore.getState().addNodes(expandedNodes);
-              if (expandedEdges.length > 0) useGraphStore.getState().addEdges(expandedEdges);
+              if (expandedNodes.length > 0) persistAddNodes(expandedNodes);
+              if (expandedEdges.length > 0) persistAddEdges(expandedEdges);
               recalculateAll();
+              persistSetClusters(useGraphStore.getState().clusters);
             },
           });
         }
@@ -254,17 +270,20 @@ export async function executeGraphCommand(intent: GraphCommandIntent): Promise<G
         const archiveNode = archiveGraph.nodes.get(intent.nodeId);
         const previousState = archiveNode?.state ?? "materialized";
 
-        useGraphStore.getState().archiveNode(intent.nodeId);
+        persistUpdateNodeState(intent.nodeId, "archived");
+        recalculateAll();
         const summary = `Archived source ${intent.nodeId.slice(0, 8)}`;
 
         const archivedNodeId = intent.nodeId;
         useHistoryStore.getState().push({
           description: summary,
           undo: () => {
-            useGraphStore.getState().updateNodeState(archivedNodeId, previousState);
+            persistUpdateNodeState(archivedNodeId, previousState);
+            recalculateAll();
           },
           redo: () => {
-            useGraphStore.getState().archiveNode(archivedNodeId);
+            persistUpdateNodeState(archivedNodeId, "archived");
+            recalculateAll();
           },
         });
 
@@ -278,7 +297,7 @@ export async function executeGraphCommand(intent: GraphCommandIntent): Promise<G
           height: 800,
           iterations: 120,
         });
-        useGraphStore.getState().updateNodePositions(positions);
+        persistUpdateNodePositions(positions);
         const summary = "Relayout applied to graph";
         return { applied: true, summary };
       }
