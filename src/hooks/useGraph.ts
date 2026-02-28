@@ -176,17 +176,25 @@ export function useGraph() {
   }, [edges, annotationNodes]);
 
   const onNodesChange = useCallback((changes: NodeChange[]) => {
-    const positionUpdates = new Map<string, { x: number; y: number }>();
+    const paperPositions = new Map<string, { x: number; y: number }>();
+    const annotationPositions = new Map<string, { x: number; y: number }>();
     for (const change of changes) {
       if (change.type === "position" && change.position) {
-        positionUpdates.set(change.id, change.position);
+        if (change.id.startsWith("annotation-")) {
+          annotationPositions.set(change.id, change.position);
+        } else {
+          paperPositions.set(change.id, change.position);
+        }
       }
       if (change.type === "select" && change.selected) {
         useGraphStore.getState().selectNode(change.id);
       }
     }
-    if (positionUpdates.size > 0) {
-      useGraphStore.getState().updateNodePositions(positionUpdates);
+    if (paperPositions.size > 0) {
+      useGraphStore.getState().updateNodePositions(paperPositions);
+    }
+    if (annotationPositions.size > 0) {
+      useGraphStore.getState().updateAnnotationPositions(annotationPositions);
     }
   }, []);
 
