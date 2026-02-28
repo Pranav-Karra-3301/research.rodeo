@@ -10,8 +10,13 @@
  */
 
 import { useGraphStore } from "@/store/graph-store";
-import { useRabbitHoleStore } from "@/store/rabbit-hole-store";
+import {
+  useRabbitHoleStore,
+  newRabbitHoleId,
+  type RabbitHole,
+} from "@/store/rabbit-hole-store";
 import { useTimelineStore } from "@/store/timeline-store";
+import { toDbNodeId } from "@/lib/db/node-id";
 import type { PaperNode, GraphEdge, Cluster, NodeState } from "@/types";
 
 function getConn() {
@@ -22,19 +27,161 @@ function getHoleId() {
   return useRabbitHoleStore.getState().currentRabbitHoleId;
 }
 
+function logStdb(msg: string): void {
+  if (process.env.NODE_ENV === "development") {
+    console.log(msg);
+  }
+}
+
+type ReducerName =
+  | "createRabbitHole"
+  | "addNode"
+  | "removeNode"
+  | "addEdge"
+  | "removeEdge"
+  | "updateNodeState"
+  | "updateNodePosition"
+  | "updateNodeData"
+  | "setClusters"
+  | "clearRabbitHole";
+
+type QueuedReducerCall = {
+  name: ReducerName;
+  args: unknown;
+  queuedAt: number;
+};
+
+const pendingReducerCalls: QueuedReducerCall[] = [];
+let isFlushingReducerQueue = false;
+
+function shouldDropQueuedCall(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return (
+    error.name === "SenderError" ||
+    error.message.includes("is unavailable on this connection")
+  );
+}
+
+function enqueueReducerCall(name: ReducerName, args: unknown): void {
+  pendingReducerCalls.push({ name, args, queuedAt: Date.now() });
+}
+
+async function invokeReducer(
+  name: ReducerName,
+  args: unknown
+): Promise<void> {
+  const conn = getConn();
+  if (!conn) throw new Error("No SpacetimeDB connection");
+  const reducers = conn.reducers as Record<
+    string,
+    ((params: unknown) => Promise<void>) | undefined
+  >;
+  const fn = reducers[name];
+  if (!fn) {
+    throw new Error(`Reducer "${name}" is unavailable on this connection`);
+  }
+  await fn(args);
+}
+
+function dispatchReducer(name: ReducerName, args: unknown): void {
+  const conn = getConn();
+  if (!conn || pendingReducerCalls.length > 0 || isFlushingReducerQueue) {
+    enqueueReducerCall(name, args);
+    void flushPendingGraphWrites();
+    return;
+  }
+
+  void invokeReducer(name, args).catch((error) => {
+    if (shouldDropQueuedCall(error)) {
+      console.warn(
+        `[STDB] reducer:${name} failed with non-retryable error; dropping write`,
+        error
+      );
+      return;
+    }
+    enqueueReducerCall(name, args);
+    console.warn(`[STDB] reducer:${name} queued after dispatch failure`, error);
+    void flushPendingGraphWrites();
+  });
+}
+
+/** Flushes queued graph writes in-order once DB connection is available. */
+export async function flushPendingGraphWrites(): Promise<void> {
+  const conn = getConn();
+  if (!conn) return;
+  if (isFlushingReducerQueue) return;
+  if (pendingReducerCalls.length === 0) return;
+
+  isFlushingReducerQueue = true;
+  try {
+    while (pendingReducerCalls.length > 0) {
+      const next = pendingReducerCalls[0];
+      try {
+        await invokeReducer(next.name, next.args);
+        pendingReducerCalls.shift();
+      } catch (error) {
+        if (shouldDropQueuedCall(error)) {
+          console.warn(
+            `[STDB] queued reducer:${next.name} failed with non-retryable error; dropping write`,
+            error
+          );
+          pendingReducerCalls.shift();
+          continue;
+        }
+        console.warn(
+          `[STDB] queued reducer:${next.name} failed; keeping ${
+            pendingReducerCalls.length
+          } queued writes`,
+          error
+        );
+        break;
+      }
+    }
+  } finally {
+    isFlushingReducerQueue = false;
+  }
+}
+
+function ensureHoleForNodeWrites(): string {
+  const state = useRabbitHoleStore.getState();
+  if (state.currentRabbitHoleId) return state.currentRabbitHoleId;
+
+  const id = newRabbitHoleId();
+  const now = Date.now();
+  const hole: RabbitHole = {
+    id,
+    name: "Untitled Rabbit Hole",
+    rootQuery: undefined,
+    createdAt: now,
+    updatedAt: now,
+  };
+  state.upsertRabbitHole(hole);
+  state.setCurrentRabbitHoleId(id);
+
+  // Queue creation first so subsequent node writes are ordered after hole creation.
+  enqueueReducerCall("createRabbitHole", {
+    id,
+    name: hole.name,
+    rootQuery: hole.rootQuery,
+  });
+  void flushPendingGraphWrites();
+
+  logStdb(`[STDB] created local rabbit hole ${id} for graph writes`);
+  return id;
+}
+
 /** Persist and add nodes to the current rabbit hole. */
 export function persistAddNodes(nodes: PaperNode[]): void {
   useGraphStore.getState().addNodes(nodes);
 
-  const conn = getConn();
-  const holeId = getHoleId();
-  if (!conn || !holeId) return;
+  const holeId = ensureHoleForNodeWrites();
 
   const t0 = performance.now();
   for (const node of nodes) {
-    conn.reducers.addNode({
+    const dbNodeId = toDbNodeId(holeId, node.id);
+    dispatchReducer("addNode", {
       rabbitHoleId: holeId,
-      nodeId: node.id,
+      nodeId: dbNodeId,
       dataJson: JSON.stringify(node.data),
       state: node.state,
       positionX: node.position.x,
@@ -43,7 +190,7 @@ export function persistAddNodes(nodes: PaperNode[]): void {
       addedAt: BigInt(node.addedAt),
     });
   }
-  console.log(`[STDB] reducer:addNode ×${nodes.length} dispatched in ${(performance.now() - t0).toFixed(1)}ms`);
+  logStdb(`[STDB] reducer:addNode ×${nodes.length} dispatched in ${(performance.now() - t0).toFixed(1)}ms`);
 
   // Track timeline events
   for (const node of nodes) {
@@ -59,15 +206,17 @@ export function persistAddNodes(nodes: PaperNode[]): void {
 export function persistRemoveNodes(nodeIds: string[]): void {
   useGraphStore.getState().removeNodes(nodeIds);
 
-  const conn = getConn();
   const holeId = getHoleId();
-  if (!conn || !holeId) return;
+  if (!holeId) return;
 
   const t0 = performance.now();
   for (const nodeId of nodeIds) {
-    conn.reducers.removeNode({ rabbitHoleId: holeId, nodeId });
+    dispatchReducer("removeNode", {
+      rabbitHoleId: holeId,
+      nodeId: toDbNodeId(holeId, nodeId),
+    });
   }
-  console.log(`[STDB] reducer:removeNode ×${nodeIds.length} dispatched in ${(performance.now() - t0).toFixed(1)}ms`);
+  logStdb(`[STDB] reducer:removeNode ×${nodeIds.length} dispatched in ${(performance.now() - t0).toFixed(1)}ms`);
 
   // Track timeline events
   for (const nodeId of nodeIds) {
@@ -83,17 +232,15 @@ export function persistRemoveNodes(nodeIds: string[]): void {
 export function persistAddEdges(edges: GraphEdge[]): void {
   useGraphStore.getState().addEdges(edges);
 
-  const conn = getConn();
-  const holeId = getHoleId();
-  if (!conn || !holeId) return;
+  const holeId = ensureHoleForNodeWrites();
 
   const t0 = performance.now();
   for (const edge of edges) {
-    conn.reducers.addEdge({
+    dispatchReducer("addEdge", {
       rabbitHoleId: holeId,
       edgeId: edge.id,
-      source: edge.source,
-      target: edge.target,
+      source: toDbNodeId(holeId, edge.source),
+      target: toDbNodeId(holeId, edge.target),
       edgeType: edge.type,
       trust: edge.trust,
       weight: edge.weight,
@@ -101,19 +248,18 @@ export function persistAddEdges(edges: GraphEdge[]): void {
       metadataJson: edge.metadata ? JSON.stringify(edge.metadata) : undefined,
     });
   }
-  console.log(`[STDB] reducer:addEdge ×${edges.length} dispatched in ${(performance.now() - t0).toFixed(1)}ms`);
+  logStdb(`[STDB] reducer:addEdge ×${edges.length} dispatched in ${(performance.now() - t0).toFixed(1)}ms`);
 }
 
 /** Persist and remove edges. */
 export function persistRemoveEdges(edgeIds: string[]): void {
   useGraphStore.getState().removeEdges(edgeIds);
 
-  const conn = getConn();
   const holeId = getHoleId();
-  if (!conn || !holeId) return;
+  if (!holeId) return;
 
   for (const edgeId of edgeIds) {
-    conn.reducers.removeEdge({ rabbitHoleId: holeId, edgeId });
+    dispatchReducer("removeEdge", { rabbitHoleId: holeId, edgeId });
   }
 }
 
@@ -121,31 +267,33 @@ export function persistRemoveEdges(edgeIds: string[]): void {
 export function persistUpdateNodeState(nodeId: string, state: NodeState): void {
   useGraphStore.getState().updateNodeState(nodeId, state);
 
-  const conn = getConn();
   const holeId = getHoleId();
-  if (!conn || !holeId) return;
+  if (!holeId) return;
 
-  conn.reducers.updateNodeState({ rabbitHoleId: holeId, nodeId, state });
+  dispatchReducer("updateNodeState", {
+    rabbitHoleId: holeId,
+    nodeId: toDbNodeId(holeId, nodeId),
+    state,
+  });
 }
 
 /** Persist node position updates. */
 export function persistUpdateNodePositions(positions: Map<string, { x: number; y: number }>): void {
   useGraphStore.getState().updateNodePositions(positions);
 
-  const conn = getConn();
   const holeId = getHoleId();
-  if (!conn || !holeId) return;
+  if (!holeId) return;
 
   const t0 = performance.now();
   for (const [nodeId, pos] of positions) {
-    conn.reducers.updateNodePosition({
+    dispatchReducer("updateNodePosition", {
       rabbitHoleId: holeId,
-      nodeId,
+      nodeId: toDbNodeId(holeId, nodeId),
       positionX: pos.x,
       positionY: pos.y,
     });
   }
-  console.log(`[STDB] reducer:updateNodePosition ×${positions.size} dispatched in ${(performance.now() - t0).toFixed(1)}ms`);
+  logStdb(`[STDB] reducer:updateNodePosition ×${positions.size} dispatched in ${(performance.now() - t0).toFixed(1)}ms`);
 }
 
 /** Persist node notes and tags change. */
@@ -163,41 +311,44 @@ export function persistUpdateNodeNotes(nodeId: string, userNotes: string, userTa
   nodes.set(nodeId, { ...node, data: updatedData, userNotes: userNotes || undefined, userTags: userTags.length > 0 ? userTags : undefined });
   useGraphStore.setState({ nodes });
 
-  const conn = getConn();
   const holeId = getHoleId();
-  if (!conn || !holeId) return;
+  if (!holeId) return;
 
   const updatedNode = nodes.get(nodeId);
   if (!updatedNode) return;
 
+  const conn = getConn();
+
   // Prefer dedicated notes column persistence when available.
   try {
-    (
-      conn.reducers as unknown as {
-        updateNodeNotes?: (args: {
-          rabbitHoleId: string;
-          nodeId: string;
-          userNotes?: string;
-        }) => void;
-      }
-    ).updateNodeNotes?.({
-      rabbitHoleId: holeId,
-      nodeId,
-      userNotes: combined || undefined,
-    });
+    if (conn) {
+      (
+        conn.reducers as unknown as {
+          updateNodeNotes?: (args: {
+            rabbitHoleId: string;
+            nodeId: string;
+            userNotes?: string;
+          }) => Promise<void>;
+        }
+      ).updateNodeNotes?.({
+        rabbitHoleId: holeId,
+        nodeId: toDbNodeId(holeId, nodeId),
+        userNotes: combined || undefined,
+      });
+    }
   } catch (error) {
     // Keep note edits durable even if the connected module lacks this reducer.
     console.warn(`[STDB] reducer:updateNodeNotes unavailable for ${nodeId}`, error);
   }
 
   // Keep backward compatibility: persist _userNotes inside data_json as fallback.
-  conn.reducers.updateNodeData({
+  dispatchReducer("updateNodeData", {
     rabbitHoleId: holeId,
-    nodeId,
+    nodeId: toDbNodeId(holeId, nodeId),
     dataJson: JSON.stringify(updatedNode.data),
     scoresJson: JSON.stringify(updatedNode.scores),
   });
-  console.log(`[STDB] reducer:updateNodeNotes/updateNodeData (notes) for ${nodeId}`);
+  logStdb(`[STDB] reducer:updateNodeNotes/updateNodeData (notes) for ${nodeId}`);
 }
 
 /** Parse persisted notes string back into { notes, tags }. */
@@ -221,13 +372,12 @@ export function persistUpdateNodeData(nodeId: string): void {
   const node = useGraphStore.getState().nodes.get(nodeId);
   if (!node) return;
 
-  const conn = getConn();
   const holeId = getHoleId();
-  if (!conn || !holeId) return;
+  if (!holeId) return;
 
-  conn.reducers.updateNodeData({
+  dispatchReducer("updateNodeData", {
     rabbitHoleId: holeId,
-    nodeId,
+    nodeId: toDbNodeId(holeId, nodeId),
     dataJson: JSON.stringify(node.data),
     scoresJson: JSON.stringify(node.scores),
   });
@@ -237,20 +387,19 @@ export function persistUpdateNodeData(nodeId: string): void {
 export function persistSetClusters(clusters: Cluster[]): void {
   useGraphStore.getState().setClusters(clusters);
 
-  const conn = getConn();
   const holeId = getHoleId();
-  if (!conn || !holeId) return;
+  if (!holeId) return;
 
   const clustersPayload = clusters.map((c) => ({
     id: c.id,
     label: c.label,
     description: c.description,
-    nodeIds: c.nodeIds,
+    nodeIds: c.nodeIds.map((nodeId) => toDbNodeId(holeId, nodeId)),
     color: c.color,
     centroid: c.centroid,
   }));
 
-  conn.reducers.setClusters({
+  dispatchReducer("setClusters", {
     rabbitHoleId: holeId,
     clustersJson: JSON.stringify(clustersPayload),
   });
@@ -260,9 +409,8 @@ export function persistSetClusters(clusters: Cluster[]): void {
 export function persistClearGraph(): void {
   useGraphStore.getState().clearGraph();
 
-  const conn = getConn();
   const holeId = getHoleId();
-  if (!conn || !holeId) return;
+  if (!holeId) return;
 
-  conn.reducers.clearRabbitHole({ rabbitHoleId: holeId });
+  dispatchReducer("clearRabbitHole", { rabbitHoleId: holeId });
 }

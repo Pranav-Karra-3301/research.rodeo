@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef } from "react";
 import { Search, ArrowUpDown } from "lucide-react";
 import { motion } from "framer-motion";
 import { Input } from "@/components/ui/Input";
@@ -171,25 +171,30 @@ export function PaperListSidebar() {
         </span>
       </div>
 
-      {/* Paper list */}
-      <ScrollArea className="flex-1">
-        <div className="p-1">
-          {sortedPapers.length === 0 ? (
-            <div className="flex items-center justify-center h-32 text-xs text-[#a8a29e]">
-              No papers found
-            </div>
-          ) : (
-            sortedPapers.map((paper) => (
-              <PaperRow
-                key={paper.id}
-                paper={paper}
-                isSelected={paper.id === selectedNodeId}
-                onSelect={handleSelectPaper}
-              />
-            ))
-          )}
-        </div>
-      </ScrollArea>
+      {/* Paper list with bottom animation overlay */}
+      <div className="relative flex-1 min-h-0 flex flex-col">
+        <ScrollArea className="flex-1">
+          <div className="p-1 pb-24">
+            {sortedPapers.length === 0 ? (
+              <div className="flex items-center justify-center h-32 text-xs text-[#a8a29e]">
+                No papers found
+              </div>
+            ) : (
+              sortedPapers.map((paper) => (
+                <PaperRow
+                  key={paper.id}
+                  paper={paper}
+                  isSelected={paper.id === selectedNodeId}
+                  onSelect={handleSelectPaper}
+                />
+              ))
+            )}
+          </div>
+        </ScrollArea>
+
+        {/* Overlay: gradient fade then animation (transparent video doesn’t overlap text sharply) */}
+        <SidebarFooterAnimation />
+      </div>
     </div>
   );
 }
@@ -255,5 +260,48 @@ function ClusterDot({ clusterId }: { clusterId: string }) {
       className="inline-block w-1.5 h-1.5 rounded-full"
       style={{ backgroundColor: cluster.color }}
     />
+  );
+}
+
+/** Experimental: animated webm at bottom of sidebar; each hover plays once to the end then stops on last frame. Overlays list with a gradient so transparent video doesn’t cut across text. */
+function SidebarFooterAnimation() {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  const handleMouseEnter = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.currentTime = 0;
+    video.play().catch(() => {});
+  }, []);
+
+  const handleEnded = useCallback(() => {
+    videoRef.current?.pause();
+  }, []);
+
+  return (
+    <div
+      className="absolute bottom-0 left-0 right-0 flex flex-col pointer-events-none"
+      aria-hidden
+    >
+      {/* Fade list content out so it doesn’t show through the transparent video */}
+      <div
+        className="h-14 w-full flex-shrink-0 bg-gradient-to-b from-transparent to-white"
+        style={{ minHeight: "3.5rem" }}
+      />
+      <div
+        className="pointer-events-auto flex items-center justify-center py-1.5 px-1 bg-white"
+        onMouseEnter={handleMouseEnter}
+      >
+        <video
+          ref={videoRef}
+          src="/animation.webm"
+          className="w-full max-w-full max-h-40 h-auto object-contain pointer-events-none"
+          muted
+          playsInline
+          preload="metadata"
+          onEnded={handleEnded}
+        />
+      </div>
+    </div>
   );
 }

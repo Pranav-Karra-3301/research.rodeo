@@ -13,6 +13,8 @@ import {
   computeNodeScore,
   normalizeScores,
   computeRawScores,
+  computeAuthorBoosts,
+  computeClusterBoosts,
 } from "@/lib/graph/scoring";
 import { computePageRank } from "@/lib/graph/pagerank";
 import { detectCommunities } from "@/lib/graph/clustering";
@@ -306,6 +308,16 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
           state.queryEmbedding ?? undefined
         );
         node.scores.relevance = relevance;
+      }
+
+      // Apply author-network and cluster-size boosts
+      const authorBoosts = computeAuthorBoosts(nodeArray);
+      const clusterBoosts = computeClusterBoosts(nodeArray, state.clusters);
+
+      for (const node of nodeArray) {
+        const authorMul = authorBoosts.get(node.id) ?? 1;
+        const clusterMul = clusterBoosts.get(node.id) ?? 1;
+        node.scores.relevance = Math.min(node.scores.relevance * authorMul * clusterMul, 1);
         nodes.set(node.id, node);
       }
 

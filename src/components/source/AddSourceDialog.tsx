@@ -14,6 +14,7 @@ import { useGraphStore } from "@/store/graph-store";
 import { useUIStore } from "@/store/ui-store";
 import { useRabbitHoleStore, newRabbitHoleId } from "@/store/rabbit-hole-store";
 import { executeGraphCommand } from "@/lib/graph/commands";
+import { toDbNodeId } from "@/lib/db/node-id";
 import {
   createNodeFromUrl,
   isValidSourceUrl,
@@ -136,20 +137,21 @@ export function AddSourceDialog() {
       if (!addResult.applied) {
         throw new Error(addResult.error ?? "Failed to add source");
       }
+      const graphNodeId = addResult.addedNodeIds?.[0] ?? data.nodeId;
 
       // If content was fetched, persist it too
       if (data.content) {
         dbConnection.reducers.setNodeContent({
           rabbitHoleId,
-          nodeId: data.nodeId,
+          nodeId: toDbNodeId(rabbitHoleId, graphNodeId),
           url: trimmed,
           content: data.content,
           truncated: data.contentTruncated ?? false,
         });
         const nodes = new Map(useGraphStore.getState().nodes);
-        const node = nodes.get(data.nodeId);
+        const node = nodes.get(graphNodeId);
         if (node) {
-          nodes.set(data.nodeId, {
+          nodes.set(graphNodeId, {
             ...node,
             data: {
               ...node.data,

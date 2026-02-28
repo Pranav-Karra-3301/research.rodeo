@@ -10,6 +10,7 @@ import {
   type SimulationLinkDatum,
 } from "d3-force";
 import type { PaperNode, GraphEdge, Cluster } from "@/types";
+import { getNodeDimensions } from "@/lib/visual/importance-size";
 
 interface LayoutNode extends SimulationNodeDatum {
   id: string;
@@ -38,8 +39,8 @@ const DEFAULTS: Required<LayoutOptions> = {
   height: 800,
   iterations: 100,
   nodeRadius: 62,
-  linkDistance: 210,
-  chargeStrength: -280,
+  linkDistance: 240,
+  chargeStrength: -350,
   clusterStrength: 0.3,
 };
 
@@ -86,11 +87,14 @@ export function computeLayout(
   const nodeSet = new Set(nodeArray.map((n) => n.id));
 
   // Create layout nodes with initial positions
-  const layoutNodes: LayoutNode[] = nodeArray.map((n) => ({
-    id: n.id,
-    x: n.position.x || (Math.random() - 0.5) * opts.width,
-    y: n.position.y || (Math.random() - 0.5) * opts.height,
-  }));
+  const layoutNodes: LayoutNode[] = nodeArray.map((n) => {
+    const hasPosition = n.position.x !== 0 || n.position.y !== 0;
+    return {
+      id: n.id,
+      x: hasPosition ? n.position.x : (Math.random() - 0.5) * opts.width,
+      y: hasPosition ? n.position.y : (Math.random() - 0.5) * opts.height,
+    };
+  });
 
   // Create layout links, filtering to nodes that exist
   const layoutLinks: LayoutLink[] = edges
@@ -100,6 +104,13 @@ export function computeLayout(
       target: e.target,
       weight: e.weight,
     }));
+
+  // Build per-node collision radii from actual dimensions
+  const nodeSizeMap = new Map<string, number>();
+  for (const n of nodeArray) {
+    const dims = getNodeDimensions(n.data.citationCount, n.scores.relevance);
+    nodeSizeMap.set(n.id, Math.max(dims.width, dims.height) / 2);
+  }
 
   // No topology information: use deterministic compact placement instead of
   // random force spread so new graphs look organized.
@@ -122,7 +133,9 @@ export function computeLayout(
     .force("center", forceCenter(0, 0))
     .force("x", forceX(0).strength(0.05))
     .force("y", forceY(0).strength(0.05))
-    .force("collide", forceCollide<LayoutNode>(opts.nodeRadius * 1.5));
+    .force("collide", forceCollide<LayoutNode>((d) => {
+      return (nodeSizeMap.get(d.id) ?? opts.nodeRadius) * 1.2;
+    }).iterations(2));
 
   // Add cluster force if clusters are provided
   if (clusters && clusters.length > 0) {
@@ -214,6 +227,13 @@ export function incrementalLayout(
     }
   }
 
+  // Build per-node collision radii from actual dimensions
+  const nodeSizeMap = new Map<string, number>();
+  for (const n of allNodeArray) {
+    const dims = getNodeDimensions(n.data.citationCount, n.scores.relevance);
+    nodeSizeMap.set(n.id, Math.max(dims.width, dims.height) / 2);
+  }
+
   // Build layout nodes
   const layoutNodes: LayoutNode[] = allNodeArray.map((n) => {
     const isExisting = existingPositions.has(n.id) && !newNodeIds.has(n.id);
@@ -248,7 +268,9 @@ export function incrementalLayout(
     .force("charge", forceManyBody<LayoutNode>().strength(opts.chargeStrength))
     .force("x", forceX(0).strength(0.05))
     .force("y", forceY(0).strength(0.05))
-    .force("collide", forceCollide<LayoutNode>(opts.nodeRadius * 1.5));
+    .force("collide", forceCollide<LayoutNode>((d) => {
+      return (nodeSizeMap.get(d.id) ?? opts.nodeRadius) * 1.2;
+    }).iterations(2));
 
   if (clusters && clusters.length > 0) {
     const clusterCentroids = computeClusterCentroids(layoutNodes, clusters);
@@ -353,11 +375,21 @@ export function createAnimatedLayout(
   const nodeArray = Array.from(nodes.values());
   const nodeSet = new Set(nodeArray.map((n) => n.id));
 
-  const layoutNodes: LayoutNode[] = nodeArray.map((n) => ({
-    id: n.id,
-    x: n.position.x || (Math.random() - 0.5) * opts.width,
-    y: n.position.y || (Math.random() - 0.5) * opts.height,
-  }));
+  // Build per-node collision radii from actual dimensions
+  const nodeSizeMap = new Map<string, number>();
+  for (const n of nodeArray) {
+    const dims = getNodeDimensions(n.data.citationCount, n.scores.relevance);
+    nodeSizeMap.set(n.id, Math.max(dims.width, dims.height) / 2);
+  }
+
+  const layoutNodes: LayoutNode[] = nodeArray.map((n) => {
+    const hasPosition = n.position.x !== 0 || n.position.y !== 0;
+    return {
+      id: n.id,
+      x: hasPosition ? n.position.x : (Math.random() - 0.5) * opts.width,
+      y: hasPosition ? n.position.y : (Math.random() - 0.5) * opts.height,
+    };
+  });
 
   const layoutLinks: LayoutLink[] = edges
     .filter((e) => nodeSet.has(e.source) && nodeSet.has(e.target))
@@ -379,7 +411,9 @@ export function createAnimatedLayout(
     .force("center", forceCenter(0, 0))
     .force("x", forceX(0).strength(0.05))
     .force("y", forceY(0).strength(0.05))
-    .force("collide", forceCollide<LayoutNode>(opts.nodeRadius * 1.5));
+    .force("collide", forceCollide<LayoutNode>((d) => {
+      return (nodeSizeMap.get(d.id) ?? opts.nodeRadius) * 1.2;
+    }).iterations(2));
 
   if (clusters && clusters.length > 0) {
     const clusterCentroids = computeClusterCentroids(layoutNodes, clusters);

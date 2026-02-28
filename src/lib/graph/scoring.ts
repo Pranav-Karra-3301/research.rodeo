@@ -1,4 +1,4 @@
-import type { PaperNode, NodeScores, WeightConfig } from "@/types";
+import type { PaperNode, NodeScores, WeightConfig, Cluster } from "@/types";
 
 const CURRENT_YEAR = new Date().getFullYear();
 
@@ -152,6 +152,65 @@ export function getScoreBreakdown(
       weighted: node.scores.velocity * weights.velocity,
     },
   ];
+}
+
+/**
+ * Compute author-network boost for nodes.
+ * Papers sharing authors with many other papers get a relevance multiplier.
+ * Returns a map of nodeId -> multiplier (1.0 = no boost, up to ~1.25).
+ */
+export function computeAuthorBoosts(
+  nodes: PaperNode[]
+): Map<string, number> {
+  const authorCounts = new Map<string, number>();
+  for (const node of nodes) {
+    for (const author of node.data.authors) {
+      const key = author.name.toLowerCase().trim();
+      authorCounts.set(key, (authorCounts.get(key) ?? 0) + 1);
+    }
+  }
+
+  const boosts = new Map<string, number>();
+  for (const node of nodes) {
+    let maxAuthorScore = 0;
+    for (const author of node.data.authors) {
+      const count = authorCounts.get(author.name.toLowerCase().trim()) ?? 0;
+      if (count > 1) {
+        maxAuthorScore = Math.max(maxAuthorScore, count);
+      }
+    }
+    const boost = maxAuthorScore > 0
+      ? 1 + Math.min(Math.log2(maxAuthorScore) * 0.1, 0.25)
+      : 1.0;
+    boosts.set(node.id, boost);
+  }
+  return boosts;
+}
+
+/**
+ * Compute cluster-size boost.
+ * Nodes in larger clusters (repeated ideas) get a relevance multiplier.
+ */
+export function computeClusterBoosts(
+  nodes: PaperNode[],
+  clusters: Cluster[]
+): Map<string, number> {
+  const nodeClusterSize = new Map<string, number>();
+  for (const cluster of clusters) {
+    for (const nodeId of cluster.nodeIds) {
+      nodeClusterSize.set(nodeId, cluster.nodeIds.length);
+    }
+  }
+
+  const boosts = new Map<string, number>();
+  for (const node of nodes) {
+    const size = nodeClusterSize.get(node.id) ?? 1;
+    const boost = size >= 3
+      ? 1 + Math.min(Math.log2(size) * 0.08, 0.2)
+      : 1.0;
+    boosts.set(node.id, boost);
+  }
+  return boosts;
 }
 
 /**

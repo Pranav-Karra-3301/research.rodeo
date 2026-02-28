@@ -5,7 +5,7 @@ import {
   Compass, History, Quote, Swords,
   Archive, Maximize, Map, LayoutGrid,
   Trash2, Lightbulb, X, Star, HelpCircle,
-  Plus, Eraser,
+  Plus, Eraser, Crosshair,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAnnotations } from "@/hooks/useAnnotations";
@@ -18,6 +18,7 @@ interface NodeMenuProps {
   position: MenuPosition;
   nodeId: string;
   nodeTitle: string;
+  onFocusView?: () => void;
   onExpand: (mode: ExpansionMode) => void;
   onArchive: () => void;
   onDelete: () => void;
@@ -123,6 +124,9 @@ function buildNodeMenuGroups(
 ): MenuItem[][] {
   return [
     [
+      ...(props.onFocusView
+        ? [{ label: "Focus view", icon: Crosshair, onClick: props.onFocusView }]
+        : []),
       { label: "Foundational", icon: Quote, onClick: () => props.onExpand("foundational") },
       { label: "Recent", icon: History, onClick: () => props.onExpand("recent") },
       { label: "Contrasting", icon: Swords, onClick: () => props.onExpand("contrasting") },

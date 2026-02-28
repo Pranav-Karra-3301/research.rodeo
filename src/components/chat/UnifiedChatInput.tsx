@@ -77,6 +77,7 @@ const TOOL_LABELS: Record<string, string> = {
   addInsightToNode: "Adding insight",
   markAsKeyFinding: "Marking as key finding",
   markAsDeadEnd: "Marking as dead end",
+  addSummaryNote: "Adding summary note",
   fetchUrlContent: "Reading URL",
   traceBacklinks: "Tracing citations",
   searchWithinHole: "Searching graph",
@@ -94,7 +95,7 @@ const GRAPH_TOOLS = new Set([
   "addContradictionCard", "saveCardForLater",
 ]);
 const ANNOTATION_TOOLS = new Set([
-  "addInsightToNode", "markAsKeyFinding", "markAsDeadEnd",
+  "addInsightToNode", "markAsKeyFinding", "markAsDeadEnd", "addSummaryNote",
 ]);
 const CONFIRM_REQUIRED = new Set(["archiveGraphNode"]);
 
@@ -108,6 +109,7 @@ function getToolStatusLabel(toolName: string, args: any, executed: boolean): str
     case "addInsightToNode": return `Added insight`;
     case "markAsKeyFinding": return "Marked as key finding";
     case "markAsDeadEnd": return "Marked as dead end";
+    case "addSummaryNote": return `Added ${args?.type ?? "summary"} note`;
     case "searchPapers": return `Searched for "${args?.query ?? ""}"`;
     case "searchWithinHole": return `Searched graph for "${args?.query ?? ""}"`;
     case "relayoutGraph": return "Recomputed layout";
@@ -183,8 +185,18 @@ export function UnifiedChatInput() {
     );
   }, [nodes, clusters, query, weights, annotationNodes]);
 
+  // #region agent log
+  const transportRecreateCount = useRef(0);
+  // #endregion
+
   const transport = useMemo(
-    () => new DefaultChatTransport({ api: "/api/chat", body: { projectContext: getProjectContext() } }),
+    () => {
+      transportRecreateCount.current += 1;
+      // #region agent log
+      fetch('http://127.0.0.1:7630/ingest/a24eb51a-4474-4af3-8e2c-8d62a547b24a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'e1b951'},body:JSON.stringify({sessionId:'e1b951',location:'UnifiedChatInput.tsx:transport-memo',message:'transport recreated',data:{count:transportRecreateCount.current},hypothesisId:'A',timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+      return new DefaultChatTransport({ api: "/api/chat", body: { projectContext: getProjectContext() } });
+    },
     [getProjectContext]
   );
   const { messages, sendMessage, status } = useChat({ transport });
@@ -283,11 +295,21 @@ export function UnifiedChatInput() {
         store.addAnnotation(annotation);
         break;
       }
+      case "addSummaryNote": {
+        const type = args.type === "question" ? "question" : args.type === "summary" ? "summary" : "insight";
+        const annotation = createAnnotation(type, args.content ?? "", args.attachedToNodeId);
+        store.addAnnotation(annotation);
+        break;
+      }
     }
   }, []);
 
   // --- Auto-execute completed tool invocations ---
   useEffect(() => {
+    // #region agent log
+    const allToolInvs = messages.flatMap(m => m.parts.filter(p => p.type === 'tool-invocation'));
+    fetch('http://127.0.0.1:7630/ingest/a24eb51a-4474-4af3-8e2c-8d62a547b24a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'e1b951'},body:JSON.stringify({sessionId:'e1b951',location:'UnifiedChatInput.tsx:tool-effect',message:'tool effect fired',data:{msgCount:messages.length,totalToolInvs:allToolInvs.length,toolStates:allToolInvs.map((p:any)=>({name:p.toolInvocation?.toolName,state:p.toolInvocation?.state,id:p.toolInvocation?.toolCallId?.slice(-6)}))},hypothesisId:'B',timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     for (const msg of messages) {
       if (msg.role !== "assistant") continue;
       for (const part of msg.parts) {
@@ -311,6 +333,9 @@ export function UnifiedChatInput() {
         }
 
         if (GRAPH_TOOLS.has(inv.toolName)) {
+          // #region agent log
+          fetch('http://127.0.0.1:7630/ingest/a24eb51a-4474-4af3-8e2c-8d62a547b24a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'e1b951'},body:JSON.stringify({sessionId:'e1b951',location:'UnifiedChatInput.tsx:executeToolAction',message:'executing graph tool',data:{toolName:inv.toolName,args:inv.args,alreadyExecuted:executedToolCalls.current.has(inv.toolCallId)},hypothesisId:'C',timestamp:Date.now()})}).catch(()=>{});
+          // #endregion
           executedToolCalls.current.add(inv.toolCallId);
           executeToolAction(inv.toolName, inv.args);
         } else if (ANNOTATION_TOOLS.has(inv.toolName)) {

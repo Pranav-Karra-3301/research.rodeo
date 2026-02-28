@@ -6,7 +6,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import { TooltipProvider } from "@/components/ui/Tooltip";
 import { GraphCanvas } from "@/components/graph/GraphCanvas";
 import { UnifiedChatInput } from "@/components/chat/UnifiedChatInput";
-import { ChatView } from "@/components/chat/ChatView";
 import { ListView } from "@/components/list/ListView";
 import { SearchBar } from "@/components/search/SearchBar";
 import { TopBar } from "@/components/layout/TopBar";
@@ -78,7 +77,7 @@ export function AppShell() {
         <div className="flex flex-1 overflow-hidden">
           {/* Left: Paper List Sidebar */}
           <AnimatePresence initial={false}>
-            {paperListOpen && currentView !== "chat" && (
+            {paperListOpen && (
               <motion.div
                 initial={{ width: 0, opacity: 0 }}
                 animate={{
@@ -103,12 +102,11 @@ export function AppShell() {
               </>
             )}
             {currentView === "list" && <ListView />}
-            {currentView === "chat" && <ChatView />}
           </div>
 
           {/* Right: Reader / Export / Frontier / Timeline */}
           <AnimatePresence initial={false}>
-            {rightPanel && currentView !== "chat" && (
+            {rightPanel && (
               <motion.div
                 initial={{ width: 0, opacity: 0 }}
                 animate={{
