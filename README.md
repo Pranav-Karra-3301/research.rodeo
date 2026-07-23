@@ -1,3 +1,11 @@
+# Research Rodeo
+
+Research Rodeo is an interactive, graph-based explorer for academic papers. It helps you discover, map, and synthesize the literature as a connected graph of related work, so you can follow citations and adjacent research visually instead of scrolling through flat lists of results.
+
+Live app: [research.rodeo](https://research.rodeo)
+
+Built with Next.js, React Flow for the graph canvas, and SpacetimeDB, with paper data from sources like OpenAlex, Semantic Scholar, and Exa. Research Rodeo took 2nd place at the Transpose hackathon at Penn State.
+
 ## Environment Setup
 
 Create your local env file from the example:
@@ -47,3 +55,7 @@ npm run env:check
 npm run lint
 npm run build
 ```
+
+## Credits
+
+Built by [Pranav Karra](https://pranavkarra.me).

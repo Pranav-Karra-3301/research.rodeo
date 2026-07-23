@@ -22,19 +22,31 @@ const sourceSerif = Source_Serif_4({
   display: "swap",
 });
 
+const siteUrl = "https://research.rodeo";
+const siteDescription =
+  "Research Rodeo is an interactive, graph-based explorer for academic papers. Discover, map, and synthesize the literature as a connected graph of related work.";
+
 export const metadata: Metadata = {
-  title: "Research Rodeo",
-  description:
-    "AI-powered literature research workspace. Discover, explore, and synthesize academic papers.",
-  metadataBase: new URL("https://research.rodeo"),
+  title: {
+    default: "Research Rodeo",
+    template: "%s | Research Rodeo",
+  },
+  description: siteDescription,
+  metadataBase: new URL(siteUrl),
+  applicationName: "Research Rodeo",
+  alternates: {
+    canonical: "/",
+  },
   icons: {
     icon: "/rodeo.png",
     apple: "/rodeo.png",
   },
   openGraph: {
+    type: "website",
+    url: siteUrl,
+    siteName: "Research Rodeo",
     title: "Research Rodeo",
-    description:
-      "AI-powered literature research workspace. Discover, explore, and synthesize academic papers.",
+    description: siteDescription,
     images: [
       {
         url: "/og-preview.jpg",
@@ -47,9 +59,45 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "Research Rodeo",
-    description:
-      "AI-powered literature research workspace. Discover, explore, and synthesize academic papers.",
+    description: siteDescription,
   },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+    },
+  },
+};
+
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebApplication",
+      "@id": `${siteUrl}/#webapp`,
+      name: "Research Rodeo",
+      url: siteUrl,
+      description: siteDescription,
+      applicationCategory: "EducationalApplication",
+      operatingSystem: "Web",
+      browserRequirements: "Requires a modern web browser with JavaScript enabled.",
+      image: `${siteUrl}/og-preview.jpg`,
+      creator: { "@id": "https://pranavkarra.me/#person" },
+    },
+    {
+      "@type": "Person",
+      "@id": "https://pranavkarra.me/#person",
+      name: "Pranav Karra",
+      url: "https://pranavkarra.me/",
+      sameAs: [
+        "https://github.com/Pranav-Karra-3301",
+        "https://www.linkedin.com/in/pranavkarra001",
+        "https://x.com/pranavkarra",
+      ],
+    },
+  ],
 };
 
 export default function RootLayout({
@@ -62,6 +110,10 @@ export default function RootLayout({
       <body
         className={`${inter.variable} ${jetbrains.variable} ${sourceSerif.variable} font-sans antialiased`}
       >
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
         <SpacetimeDBProvider>{children}</SpacetimeDBProvider>
       </body>
     </html>
