@@ -1,0 +1,29 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "research-rodeo",
+  "account_id": "ed61a2220d42b5b8a61059cce9af9980",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-11-01",
+  // global_fetch_strictly_public: the chat tools fetch this app's own /api/*
+  // routes through NEXT_PUBLIC_APP_URL, so same-zone fetches must go out
+  // through the public front door and hit this Worker again.
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "research-rodeo"
+    }
+  ],
+  // TODO: once the research.rodeo zone is on Cloudflare, add
+  // { "pattern": "research.rodeo", "custom_domain": true } here and rebuild
+  // with NEXT_PUBLIC_APP_URL=https://research.rodeo.
+  "routes": [{ "pattern": "rodeo.pranavkarra.me", "custom_domain": true }],
+  "workers_dev": false,
+  "observability": {
+    "enabled": true
+  }
+}

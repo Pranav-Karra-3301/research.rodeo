@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // OpenNext / Wrangler build output
+    ".open-next/**",
+    ".wrangler/**",
+    "cloudflare-env.d.ts",
     // Generated SpacetimeDB artifacts
     "spacetimedb-module/spacetimedb/dist/**",
   ]),
